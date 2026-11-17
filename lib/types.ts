@@ -4,6 +4,8 @@ export type Team = {
   owner: string;
   short: string;
   color: string;
+  /** Compressed image data URL shown next to the team name. */
+  logo?: string;
   purse: number;
   spent: number;
   slots: number;

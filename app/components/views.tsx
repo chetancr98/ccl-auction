@@ -1,10 +1,9 @@
 "use client";
 
-import { CalendarClock, Gavel, Plus, Radio, Search, Sparkles, Trash2, Trophy, Users, WalletCards } from "lucide-react";
-import { useMemo, useState } from "react";
+import { CalendarClock, Gavel, Plus, Radio, Sparkles, Trash2, Trophy, Users, WalletCards } from "lucide-react";
 import { money, points } from "@/lib/format";
 import type { Auction, AuctionEvent } from "@/lib/types";
-import { Empty, Metric, Panel, PlayerPhoto, RoleTag, Stat, StatusTag, TeamCrest } from "./ui";
+import { Empty, Metric, Panel, PlayerPhoto, Stat, TeamCrest } from "./ui";
 
 type Phase = { label: string; tone: string; live?: boolean };
 
@@ -58,7 +57,7 @@ export function Dashboard({
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.24em] text-gold">
               <Sparkles size={16} /> CCL family presents
             </p>
-            <h1 className="mt-3 font-display text-5xl font-bold uppercase leading-[.95] tracking-wide md:text-7xl">
+            <h1 className="mt-3 font-display text-6xl font-extrabold uppercase italic leading-[.9] tracking-wide md:text-8xl">
               Carpool Cricket
               <span className="gold-text block">Player Auction</span>
             </h1>
@@ -203,7 +202,7 @@ const eventStyle: Record<AuctionEvent["kind"], { label: string; tone: string }> 
   undo: { label: "Undo", tone: "#94a3b8" },
 };
 
-function SubDashboard({ auction }: { auction: Auction }) {
+export function SubDashboard({ auction, showTitle = true }: { auction: Auction; showTitle?: boolean }) {
   const sold = auction.players.filter((player) => player.status === "sold");
   const topBuys = [...sold].sort((a, b) => (b.price ?? 0) - (a.price ?? 0)).slice(0, 5);
   const history = auction.history.slice(-8).reverse();
@@ -211,9 +210,13 @@ function SubDashboard({ auction }: { auction: Auction }) {
   const maxPurse = Math.max(1, ...auction.teams.map((team) => team.purse + team.spent));
 
   return (
-    <section className="mt-12">
-      <p className="text-xs font-bold uppercase tracking-[.2em] text-cyan">Overview</p>
-      <h2 className="font-display text-3xl font-semibold uppercase tracking-wide">{auction.rules.name}</h2>
+    <section className={showTitle ? "mt-12" : "mt-6"}>
+      {showTitle && (
+        <>
+          <p className="text-xs font-bold uppercase tracking-[.2em] text-cyan">Overview</p>
+          <h2 className="font-display text-3xl font-bold uppercase tracking-wide">{auction.rules.name}</h2>
+        </>
+      )}
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric icon={<Users size={18} />} label="Teams" value={auction.teams.length} />
         <Metric label="Players left" value={auction.players.filter((player) => player.status === "available").length} hint={`${auction.players.length} in the pool`} />
@@ -357,68 +360,5 @@ export function TeamSummaryCards({ auction }: { auction: Auction }) {
         );
       })}
     </div>
-  );
-}
-
-export function Registry({ auction }: { auction?: Auction }) {
-  const [filter, setFilter] = useState<"all" | "available" | "sold" | "unsold">("all");
-  const [query, setQuery] = useState("");
-  const players = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return (auction?.players ?? []).filter((player) => (filter === "all" || player.status === filter) && (!needle || player.name.toLowerCase().includes(needle)));
-  }, [auction?.players, filter, query]);
-
-  if (!auction) return <Empty text="Select an auction from the Dashboard to see its players and squads." />;
-
-  const count = (status: string) => auction.players.filter((player) => status === "all" || player.status === status).length;
-
-  return (
-    <>
-      <p className="text-xs font-bold uppercase tracking-[.2em] text-cyan">Registry</p>
-      <h1 className="font-display text-4xl font-bold uppercase tracking-wide">{auction.rules.name}</h1>
-
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-1 rounded-2xl border border-white/10 bg-white/[.04] p-1">
-          {(["all", "available", "sold", "unsold"] as const).map((item) => (
-            <button
-              key={item}
-              onClick={() => setFilter(item)}
-              className={`rounded-xl px-3 py-2 text-xs font-bold capitalize transition ${filter === item ? "bg-cyan text-slate-950" : "text-slate-400 hover:text-white"}`}
-            >
-              {item} · {count(item)}
-            </button>
-          ))}
-        </div>
-        <label className="flex w-full items-center gap-2 rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm sm:w-64">
-          <Search size={15} className="text-slate-500" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search players" className="w-full bg-transparent outline-none placeholder:text-slate-500" />
-        </label>
-      </div>
-
-      {players.length ? (
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {players.map((player) => (
-            <article key={player.id} className="rounded-[1.5rem] border border-white/10 bg-white/[.045] p-4 text-center">
-              <div className="flex justify-center">
-                <PlayerPhoto player={player} size="lg" />
-              </div>
-              <h3 className="mt-3 truncate font-display text-lg font-semibold uppercase tracking-wide">{player.name}</h3>
-              <div className="mt-2 flex justify-center">
-                <RoleTag role={player.role} />
-              </div>
-              <div className="mt-3 flex justify-center">
-                <StatusTag status={player.status} team={player.team} />
-              </div>
-              <p className="mt-2 font-display text-lg font-semibold text-gold">{player.status === "sold" ? money(player.price ?? 0) : `Base ${money(player.base)}`}</p>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <Empty text="No players match." />
-      )}
-
-      <h2 className="mb-3 mt-10 font-display text-2xl font-semibold uppercase tracking-wide">Squads</h2>
-      <TeamSummaryCards auction={auction} />
-    </>
   );
 }

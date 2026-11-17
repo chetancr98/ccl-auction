@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { initials, roleColor, textOn } from "@/lib/format";
 import type { Player, Team } from "@/lib/types";
@@ -34,8 +34,20 @@ export function PlayerPhoto({
   );
 }
 
-export function TeamCrest({ team, size = "md" }: { team: Pick<Team, "short" | "color" | "name">; size?: "sm" | "md" | "lg" }) {
-  const sizes = { sm: "h-8 w-8 text-[11px]", md: "h-11 w-11 text-sm", lg: "h-16 w-16 text-xl" };
+export function TeamCrest({ team, size = "md" }: { team: Pick<Team, "short" | "color" | "name" | "logo">; size?: "xs" | "sm" | "md" | "lg" | "xl" }) {
+  const sizes = { xs: "h-6 w-6 text-[9px]", sm: "h-8 w-8 text-[11px]", md: "h-11 w-11 text-sm", lg: "h-16 w-16 text-xl", xl: "h-24 w-24 text-3xl" };
+  if (team.logo) {
+    return (
+      <span
+        title={team.name}
+        className={`${sizes[size]} relative block shrink-0 overflow-hidden rounded-full bg-white shadow-md`}
+        style={{ boxShadow: `0 0 0 2px ${team.color}` }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={team.logo} alt={`${team.name} logo`} className="absolute inset-[10%] h-[80%] w-[80%] object-contain" />
+      </span>
+    );
+  }
   return (
     <span
       title={team.name}
@@ -43,6 +55,51 @@ export function TeamCrest({ team, size = "md" }: { team: Pick<Team, "short" | "c
       style={{ background: `radial-gradient(circle at 30% 25%, ${team.color}, ${team.color}cc 55%, #0b1020 140%)`, color: textOn(team.color) }}
     >
       {team.short}
+    </span>
+  );
+}
+
+/**
+ * Portrait player card: the photo fills the card and the content (name, team, price) sits on a
+ * dark gradient over the lower part of the photo, like a broadcast graphic.
+ */
+export function PlayerCard({
+  player,
+  badge,
+  children,
+  className = "",
+  style,
+}: {
+  player: Pick<Player, "name" | "role" | "photo">;
+  badge?: ReactNode;
+  children?: ReactNode;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const tone = roleColor(player.role);
+  return (
+    <div
+      className={`relative isolate overflow-hidden rounded-[1.75rem] border border-white/15 shadow-[0_30px_80px_-20px_rgba(0,0,0,.8)] ${className}`}
+      style={{ background: `radial-gradient(120% 80% at 50% 10%, ${tone}66, #0b1226 65%)`, ...style }}
+    >
+      {player.photo ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={player.photo} alt={player.name} className="absolute inset-0 -z-10 h-full w-full object-cover object-top" />
+      ) : (
+        <span className="absolute inset-x-0 top-[12%] -z-10 text-center font-display text-[9rem] font-extrabold italic leading-none text-white/15">{initials(player.name)}</span>
+      )}
+      <div className="absolute inset-0 -z-10 bg-gradient-to-t from-[#040713] via-[#040713]/55 via-45% to-transparent" />
+      {badge && <div className="absolute left-3 right-3 top-3 flex flex-wrap items-start justify-between gap-2">{badge}</div>}
+      <div className="absolute inset-x-0 bottom-0 p-4 md:p-5">{children}</div>
+    </div>
+  );
+}
+
+export function TeamName({ team, size = "sm" }: { team: Pick<Team, "short" | "color" | "name" | "logo">; size?: "xs" | "sm" | "md" }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-2">
+      <TeamCrest team={team} size={size} />
+      <span className="truncate">{team.name}</span>
     </span>
   );
 }

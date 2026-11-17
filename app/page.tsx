@@ -12,7 +12,7 @@ import {
   Radio,
   Sun,
   Trash2,
-  Users,
+  Trophy,
   Wrench,
 } from "lucide-react";
 
@@ -22,7 +22,8 @@ import { money } from "@/lib/format";
 import type { Auction, Player, Rules, Team } from "@/lib/types";
 import { Room } from "./components/room";
 import { Empty, Input, Item, List, Panel, PlayerPhoto, TeamCrest } from "./components/ui";
-import { Dashboard, Registry } from "./components/views";
+import { Results } from "./components/results";
+import { Dashboard } from "./components/views";
 
 type Theme = "dark" | "light";
 
@@ -57,7 +58,8 @@ const readTextFile = (file: File) =>
     reader.readAsText(file);
   });
 
-const compressImage = (file: File, maxSize = 360, quality = 0.65) =>
+// Player photos: JPEG keeps them small. Team logos: PNG keeps transparent backgrounds.
+const compressImage = (file: File, maxSize = 360, quality = 0.65, type: "image/jpeg" | "image/png" = "image/jpeg") =>
   new Promise<string>((resolve, reject) => {
     const image = new Image();
     const url = URL.createObjectURL(file);
@@ -74,7 +76,7 @@ const compressImage = (file: File, maxSize = 360, quality = 0.65) =>
       }
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/jpeg", quality));
+      resolve(canvas.toDataURL(type, quality));
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
@@ -338,7 +340,7 @@ export default function App() {
               ) : (
                 <Empty text="Only admins can build or edit auctions. Sign in with an admin account to continue." />
               ))}
-            {tab === "registry" && <Registry auction={auction} />}
+            {tab === "registry" && <Results auction={auction} />}
             {tab === "room" && <Room auction={auction} canEdit={canEdit} onSave={save} />}
           </>
         )}
@@ -350,7 +352,7 @@ export default function App() {
 const TAB_META: Record<(typeof tabs)[number], { label: string; icon: ReactNode }> = {
   dashboard: { label: "Home", icon: <Home size={17} /> },
   room: { label: "Live room", icon: <Radio size={17} /> },
-  registry: { label: "Players", icon: <Users size={17} /> },
+  registry: { label: "Results", icon: <Trophy size={17} /> },
   builder: { label: "Builder", icon: <Wrench size={17} /> },
 };
 
@@ -465,7 +467,7 @@ function Builder({
   const [players, setPlayers] = useState<Player[]>(auction?.players || []);
   const [editingTeam, setEditingTeam] = useState<string>();
   const [editingPlayer, setEditingPlayer] = useState<string>();
-  const [teamForm, setTeamForm] = useState({ name: "", owner: "", short: "", purse: DEFAULT_PURSE, color: nextTeamColor(auction?.teams ?? []) });
+  const [teamForm, setTeamForm] = useState({ name: "", owner: "", short: "", purse: DEFAULT_PURSE, color: nextTeamColor(auction?.teams ?? []), logo: "" });
   const [playerForm, setPlayerForm] = useState({ ...defaultPlayerForm, base: String(rules.basePrice) });
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("Upload a CSV with image files, or one JSON file with embedded photo data.");
@@ -501,6 +503,7 @@ function Builder({
       owner: teamForm.owner,
       short: teamForm.short.toUpperCase().slice(0, 3) || teamForm.name.slice(0, 3).toUpperCase(),
       color: teamForm.color,
+      logo: teamForm.logo || undefined,
       purse: Math.max(totalPurse - spent, 0),
       spent,
       slots: existing?.slots || rules.maxSlots,
@@ -508,7 +511,7 @@ function Builder({
 
     const updated = editingTeam ? teams.map((item) => (item.id === editingTeam ? next : item)) : [...teams, next];
     setTeams(updated);
-    setTeamForm({ name: "", owner: "", short: "", purse: DEFAULT_PURSE, color: nextTeamColor(updated) });
+    setTeamForm({ name: "", owner: "", short: "", purse: DEFAULT_PURSE, color: nextTeamColor(updated), logo: "" });
     setEditingTeam(undefined);
   };
 
@@ -534,6 +537,12 @@ function Builder({
     setPlayers((current) => (editingPlayer ? current.map((item) => (item.id === editingPlayer ? next : item)) : [...current, next]));
     setPlayerForm({ ...defaultPlayerForm, base: String(rules.basePrice) });
     setEditingPlayer(undefined);
+  };
+
+  const handleLogo = async (file?: File) => {
+    if (!file) return;
+    const logo = await compressImage(file, 200, 0.9, "image/png");
+    setTeamForm((current) => ({ ...current, logo }));
   };
 
   const handlePhoto = async (file?: File) => {
@@ -691,9 +700,24 @@ function Builder({
                   aria-label="Custom team colour"
                   className="h-7 w-9 cursor-pointer rounded-lg border-0 bg-transparent p-0"
                 />
-                <span className="ml-auto">
-                  <TeamCrest team={{ name: teamForm.name || "Team", short: (teamForm.short || teamForm.name.slice(0, 3) || "TM").toUpperCase().slice(0, 3), color: teamForm.color }} size="sm" />
-                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+              <TeamCrest team={{ name: teamForm.name || "Team", short: (teamForm.short || teamForm.name.slice(0, 3) || "TM").toUpperCase().slice(0, 3), color: teamForm.color, logo: teamForm.logo }} size="lg" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-slate-300">Team logo (optional)</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">PNG with transparent background works best.</p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="cursor-pointer rounded-xl bg-white/10 px-3 py-1.5 text-center text-xs font-bold transition hover:bg-white/15">
+                  {teamForm.logo ? "Change" : "Upload"}
+                  <input type="file" accept="image/*" className="hidden" onChange={(event) => handleLogo(event.currentTarget.files?.[0])} />
+                </label>
+                {teamForm.logo && (
+                  <button type="button" onClick={() => setTeamForm({ ...teamForm, logo: "" })} className="rounded-xl px-3 py-1 text-[11px] font-bold text-red-300 hover:bg-red-500/10">
+                    Remove
+                  </button>
+                )}
               </div>
             </div>
             <button className="rounded-2xl bg-white/10 py-3 text-sm font-bold transition hover:bg-white/15">{editingTeam ? "Save team" : "Add team"}</button>
@@ -712,6 +736,7 @@ function Builder({
                     short: item.short,
                     purse: String(item.purse + item.spent),
                     color: item.color,
+                    logo: item.logo || "",
                   });
                 }}
                 del={() => setTeams((current) => current.filter((team) => team.id !== item.id))}

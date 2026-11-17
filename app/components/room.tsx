@@ -5,7 +5,7 @@ import { Gavel, Maximize2, Minimize2, Pause, Play, RotateCcw, Search, Undo2, X }
 import { useEffect, useMemo, useRef, useState } from "react";
 import { money, points, stamp, textOn } from "@/lib/format";
 import type { Auction, AuctionEvent, Bid, Player, Team } from "@/lib/types";
-import { Empty, PlayerPhoto, RoleTag, TeamCrest } from "./ui";
+import { Empty, PlayerCard, PlayerPhoto, RoleTag, TeamCrest } from "./ui";
 
 const ROLES = ["All", "Batter", "All-rounder", "Fast bowler", "Spinner", "Wicketkeeper"];
 const MOMENT_MS = 4500;
@@ -185,7 +185,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
             {running ? "Live · " : ""}
             {status.label}
           </p>
-          <h1 className="mt-1 truncate font-display text-3xl font-bold uppercase tracking-wide md:text-4xl">{auction.rules.name}</h1>
+          <h1 className="mt-1 truncate font-display text-4xl font-extrabold uppercase italic tracking-wide md:text-5xl">{auction.rules.name}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Chip label="Lots done" value={`${closed}/${total}`} />
@@ -291,22 +291,30 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -12 }}
                   transition={{ duration: 0.35 }}
-                  className="relative grid gap-6 lg:grid-cols-[auto_1fr] lg:items-center"
+                  className="relative grid gap-6 lg:grid-cols-[minmax(260px,340px)_1fr] lg:items-center"
                 >
-                  <div className="flex flex-col items-center gap-4 sm:flex-row lg:flex-col">
-                    <PlayerPhoto player={player} size="hero" />
-                  </div>
+                  <PlayerCard
+                    player={player}
+                    className="mx-auto aspect-[4/5] w-full max-w-sm"
+                    badge={
+                      <>
+                        <span className="rounded-full bg-black/55 backdrop-blur">
+                          <RoleTag role={player.role} />
+                        </span>
+                        <span className="rounded-full bg-black/55 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-white backdrop-blur">Age {player.age}</span>
+                      </>
+                    }
+                  >
+                    <p className="text-[11px] font-bold uppercase tracking-[.24em] text-gold">On the block · Lot {closed + 1}</p>
+                    <h2 className="mt-1 break-words font-display text-5xl font-extrabold uppercase italic leading-[.9] tracking-wide text-white drop-shadow-[0_4px_18px_rgba(0,0,0,.8)] md:text-6xl">
+                      {player.name}
+                    </h2>
+                    <p className="mt-2 text-sm font-semibold text-slate-200">
+                      Base price <span className="font-display text-lg font-bold text-gold">{money(player.base)}</span>
+                    </p>
+                  </PlayerCard>
                   <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <RoleTag role={player.role} />
-                      <span className="rounded-full border border-white/15 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-slate-300">Age {player.age}</span>
-                      <span className="rounded-full border border-gold/30 bg-gold/10 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-gold">
-                        Base {money(player.base)}
-                      </span>
-                    </div>
-                    <h2 className="mt-3 break-words font-display text-5xl font-bold uppercase leading-[.95] tracking-wide md:text-7xl">{player.name}</h2>
-
-                    <div className="mt-6 grid gap-4 md:grid-cols-[1.2fr_1fr]">
+                    <div className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
                       {/* Current bid */}
                       <div
                         className="relative overflow-hidden rounded-3xl border p-5 transition-colors duration-500"
@@ -323,7 +331,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                             animate={{ scale: 1, opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -8 }}
                             transition={{ type: "spring", stiffness: 420, damping: 22 }}
-                            className="gold-text mt-1 font-display text-6xl font-bold leading-none md:text-7xl"
+                            className="gold-text mt-1 pr-2 font-display text-7xl font-extrabold italic leading-none md:text-8xl"
                           >
                             {points(high ? high.amount : openingBid)}
                             <span className="ml-2 text-2xl">pts</span>
@@ -552,44 +560,60 @@ function ClosingMoment({ auction, moment, onClose }: { auction: Auction; moment?
           onClick={onClose}
           role="status"
           aria-live="assertive"
-          className="fixed inset-0 z-[60] grid cursor-pointer place-items-center bg-[#030611]/80 p-4 backdrop-blur-md"
+          className="fixed inset-0 z-[60] grid cursor-pointer place-items-center overflow-hidden bg-[#030611]/85 p-4 backdrop-blur-md"
         >
+          {/* Team-colour light burst behind the card */}
           <motion.div
-            initial={{ scale: 0.85, y: 20 }}
-            animate={{ scale: 1, y: 0 }}
+            initial={{ scale: 0.4, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.6 }}
+            className="pointer-events-none absolute h-[120vmin] w-[120vmin] rounded-full"
+            style={{ background: `radial-gradient(circle, ${tone}55 0%, ${tone}18 35%, transparent 65%)` }}
+          />
+          <motion.div
+            initial={{ scale: 0.8, y: 40, rotate: -2 }}
+            animate={{ scale: 1, y: 0, rotate: 0 }}
             exit={{ scale: 0.95, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 260, damping: 20 }}
-            className="stage relative w-full max-w-xl overflow-hidden rounded-[2rem] border p-8 text-center"
-            style={{ borderColor: `${tone}aa`, boxShadow: `0 0 120px -20px ${tone}` }}
+            transition={{ type: "spring", stiffness: 240, damping: 20 }}
+            className="relative w-full max-w-[min(26rem,calc((100vh-6rem)*0.8))]"
           >
-            <div className="absolute inset-x-0 top-0 h-1.5" style={{ background: tone }} />
-            <div className="relative mx-auto w-fit">
-              <PlayerPhoto player={who} size="lg" />
-              <motion.span
-                initial={{ scale: 2.6, rotate: -18, opacity: 0 }}
-                animate={{ scale: 1, rotate: -10, opacity: 1 }}
-                transition={{ delay: 0.15, type: "spring", stiffness: 380, damping: 16 }}
-                className="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-xl border-4 px-4 py-1 font-display text-4xl font-bold uppercase tracking-widest"
-                style={{ borderColor: tone, color: tone, background: "#050814" }}
-              >
-                {sold ? "Sold" : "Unsold"}
-              </motion.span>
-            </div>
-            <p className="mt-10 font-display text-4xl font-bold uppercase tracking-wide md:text-5xl">{who.name}</p>
-            {sold && team ? (
-              <>
-                <div className="mt-4 flex items-center justify-center gap-3">
-                  <TeamCrest team={team} />
-                  <p className="font-display text-2xl font-semibold uppercase tracking-wide">{team.name}</p>
-                </div>
-                <p className="gold-text mt-4 font-display text-6xl font-bold">
-                  {points(moment.amount ?? 0)}
-                  <span className="ml-2 text-2xl">pts</span>
-                </p>
-              </>
-            ) : (
-              <p className="mt-3 text-slate-400">No bids this round. {who.name} can come back in the unsold round.</p>
-            )}
+            <PlayerCard
+              player={who}
+              className="aspect-[4/5] w-full border-2"
+              style={{ borderColor: tone, boxShadow: `0 0 90px -20px ${tone}` }}
+              badge={
+                <span className="rounded-full bg-black/55 backdrop-blur">
+                  <RoleTag role={who.role} />
+                </span>
+              }
+            >
+              <h2 className="break-words font-display text-5xl font-extrabold uppercase italic leading-[.9] tracking-wide text-white drop-shadow-[0_4px_18px_rgba(0,0,0,.9)] sm:text-6xl">
+                {who.name}
+              </h2>
+              {sold && team ? (
+                <>
+                  <div className="mt-3 flex items-center gap-2.5">
+                    <TeamCrest team={team} size="md" />
+                    <p className="min-w-0 truncate font-display text-2xl font-bold uppercase tracking-wide text-white">{team.name}</p>
+                  </div>
+                  <p className="gold-text mt-2 pr-2 font-display text-7xl font-extrabold italic leading-none">
+                    {points(moment.amount ?? 0)}
+                    <span className="ml-2 text-3xl">pts</span>
+                  </p>
+                </>
+              ) : (
+                <p className="mt-3 text-sm text-slate-200">No bids this round. {who.name} can return in the unsold round.</p>
+              )}
+            </PlayerCard>
+            <motion.span
+              initial={{ scale: 3, rotate: -30, opacity: 0 }}
+              animate={{ scale: 1, rotate: -12, opacity: 1 }}
+              transition={{ delay: 0.2, type: "spring", stiffness: 420, damping: 15 }}
+              className="absolute -right-3 top-14 rounded-xl border-[5px] px-5 py-1 font-display text-5xl font-extrabold uppercase italic tracking-widest shadow-2xl sm:-right-8"
+              style={{ borderColor: tone, color: tone, background: "#050814", boxShadow: `0 0 40px -6px ${tone}` }}
+            >
+              {sold ? "Sold" : "Unsold"}
+            </motion.span>
           </motion.div>
         </motion.div>
       )}
