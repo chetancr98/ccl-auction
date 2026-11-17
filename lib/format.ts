@@ -2,7 +2,20 @@ export const points = (n: number) => n.toLocaleString("en-IN", { maximumFraction
 export const money = (n: number) => `${points(n)} pts`;
 export const stamp = () => new Date().toLocaleString();
 
-export const initials = (name: string) =>
+/** The raise that applies when the current bid is `amount` (highest tier whose `from` has been reached). */
+export function incrementAt(rules: { increment: number; incrementTiers?: { from: number; step: number }[] }, amount: number) {
+  let step = rules.increment;
+  let reached = -Infinity;
+  for (const tier of rules.incrementTiers ?? []) {
+    if (tier.step > 0 && amount >= tier.from && tier.from >= reached) {
+      step = tier.step;
+      reached = tier.from;
+    }
+  }
+  return step;
+}
+
+export const initials =(name: string) =>
   name
     .split(/\s+/)
     .filter(Boolean)

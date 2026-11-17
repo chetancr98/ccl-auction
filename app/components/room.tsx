@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Gavel, Maximize2, Minimize2, Pause, Play, RotateCcw, Search, Undo2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { money, points, stamp, textOn } from "@/lib/format";
+import { incrementAt, money, points, stamp, textOn } from "@/lib/format";
 import type { Auction, AuctionEvent, Bid, Player, Team } from "@/lib/types";
 import { Empty, PlayerCard, PlayerPhoto, RoleTag, TeamCrest } from "./ui";
 
@@ -89,7 +89,8 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
   const high = bids[0];
   const leader = auction.teams.find((team) => team.id === high?.teamId);
   const openingBid = player ? Math.max(player.base, auction.rules.minimumBid) : 0;
-  const nextAmount = high ? high.amount + auction.rules.increment : openingBid;
+  const step = high ? incrementAt(auction.rules, high.amount) : 0;
+  const nextAmount = high ? high.amount + step : openingBid;
   const total = auction.players.length;
   const closed = auction.players.filter((item) => item.status !== "available").length;
   const soldCount = auction.players.filter((item) => item.status === "sold").length;
@@ -433,7 +434,8 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
           <section>
             <div className="mb-3 flex items-end justify-between gap-3">
               <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Team paddles</h2>
-              {player && <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Next bid · <span className="text-gold">{money(nextAmount)}</span></p>}
+              {player && <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Next bid · <span className="text-gold">{money(nextAmount)}</span>
+                  {high ? <span className="text-slate-500"> (+{points(step)})</span> : null}</p>}
             </div>
             {auction.teams.length ? (
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4">

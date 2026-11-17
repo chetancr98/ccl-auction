@@ -25,10 +25,15 @@ export type Player = {
   photo?: string;
 };
 
+/** Once the current bid reaches `from` points, each raise is `step` points. */
+export type IncrementTier = { from: number; step: number };
+
 export type Rules = {
   name: string;
   minimumBid: number;
+  /** Raise used below the first tier. */
   increment: number;
+  incrementTiers?: IncrementTier[];
   basePrice: number;
   maxSlots: number;
   scheduledAt: string;

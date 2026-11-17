@@ -9,6 +9,7 @@ import {
   LogIn,
   LogOut,
   Moon,
+  Plus,
   Radio,
   Sun,
   Trash2,
@@ -18,8 +19,8 @@ import {
 
 import { firebaseEnabled } from "@/lib/firebase";
 import { deleteAuction as deleteRemoteAuction, saveAuction, signInWithEmail, signInWithGoogle, signOut, subscribeAuctions, watchAuth, type AuthState } from "@/lib/store";
-import { money } from "@/lib/format";
-import type { Auction, Player, Rules, Team } from "@/lib/types";
+import { money, points } from "@/lib/format";
+import type { Auction, IncrementTier, Player, Rules, Team } from "@/lib/types";
 import { Room } from "./components/room";
 import { Empty, Input, Item, List, Panel, PlayerPhoto, TeamCrest } from "./components/ui";
 import { Results } from "./components/results";
@@ -349,6 +350,69 @@ export default function App() {
   );
 }
 
+/** "From X points, raise by Y" rows that make the bid increment grow as the price climbs. */
+function IncrementTiersEditor({ rules, onChange }: { rules: Rules; onChange: (tiers: IncrementTier[]) => void }) {
+  const tiers = rules.incrementTiers ?? [];
+  const update = (index: number, patch: Partial<IncrementTier>) => onChange(tiers.map((tier, i) => (i === index ? { ...tier, ...patch } : tier)));
+  const add = () => {
+    const last = tiers[tiers.length - 1];
+    const from = last ? last.from * 2 : Math.max(rules.minimumBid * 5, 100);
+    const step = last ? last.step * 2 : Math.max(rules.increment * 2, 1);
+    onChange([...tiers, { from, step }]);
+  };
+  const sorted = [...tiers].filter((tier) => tier.from > 0 && tier.step > 0).sort((a, b) => a.from - b.from);
+  const summary = [
+    `Below ${sorted[0] ? points(sorted[0].from) : "∞"}: +${points(rules.increment)}`,
+    ...sorted.map((tier, index) => `${points(tier.from)}${sorted[index + 1] ? `–${points(sorted[index + 1].from - 1)}` : "+"}: +${points(tier.step)}`),
+  ];
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-slate-300">Bigger increments as the price rises</p>
+        <button type="button" onClick={add} className="flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-[11px] font-bold transition hover:bg-white/15">
+          <Plus size={12} /> Add step-up
+        </button>
+      </div>
+      {tiers.length > 0 && (
+        <div className="mt-2 space-y-2">
+          {tiers.map((tier, index) => (
+            <div key={index} className="flex items-center gap-2 text-xs text-slate-400">
+              <span className="shrink-0">From</span>
+              <input
+                type="number"
+                min={1}
+                value={String(tier.from)}
+                onChange={(event) => update(index, { from: Number(event.target.value) })}
+                aria-label={`Step-up ${index + 1} starts at`}
+                className="w-20 rounded-xl border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-white outline-none focus:border-cyan"
+              />
+              <span className="shrink-0">pts, raise by</span>
+              <input
+                type="number"
+                min={1}
+                value={String(tier.step)}
+                onChange={(event) => update(index, { step: Number(event.target.value) })}
+                aria-label={`Step-up ${index + 1} increment`}
+                className="w-16 rounded-xl border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-white outline-none focus:border-cyan"
+              />
+              <button
+                type="button"
+                onClick={() => onChange(tiers.filter((_, i) => i !== index))}
+                aria-label={`Remove step-up ${index + 1}`}
+                className="ml-auto text-red-300 transition hover:text-red-200"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="mt-2 text-[11px] leading-5 text-slate-500">{tiers.length ? summary.join(" · ") : `Every raise is +${points(rules.increment)}. Add a step-up to raise faster at higher prices.`}</p>
+    </div>
+  );
+}
+
 const TAB_META: Record<(typeof tabs)[number], { label: string; icon: ReactNode }> = {
   dashboard: { label: "Home", icon: <Home size={17} /> },
   room: { label: "Live room", icon: <Radio size={17} /> },
@@ -624,7 +688,7 @@ function Builder({
     if (!rules.name) return;
     const next: Auction = {
       id: auction?.id || crypto.randomUUID(),
-      rules,
+      rules: { ...rules, incrementTiers: (rules.incrementTiers ?? []).filter((tier) => tier.from > 0 && tier.step > 0).sort((a, b) => a.from - b.from) },
       teams,
       players,
       history: auction?.history || [],
@@ -644,6 +708,7 @@ function Builder({
             <Input label="Scheduled time (optional)" type="datetime-local" required={false} value={rules.scheduledAt} on={(value) => setRules({ ...rules, scheduledAt: value })} />
             <Input label="Minimum bid (points)" type="number" value={String(rules.minimumBid)} on={(value) => setRules({ ...rules, minimumBid: +value })} />
             <Input label="Bid increment (points)" type="number" value={String(rules.increment)} on={(value) => setRules({ ...rules, increment: +value })} />
+            <IncrementTiersEditor rules={rules} onChange={(incrementTiers) => setRules({ ...rules, incrementTiers })} />
             <div>
               <Input label="Default base price for every player (points)" type="number" value={String(rules.basePrice)} on={changeBasePrice} />
               <div className="mt-1 flex items-center justify-between gap-2">
