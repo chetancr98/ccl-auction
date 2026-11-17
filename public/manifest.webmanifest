@@ -1,0 +1,26 @@
+{
+  "name": "CCL Auctions",
+  "short_name": "CCL Auction",
+  "description": "Premium cricket auction command centre",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#060914",
+  "theme_color": "#39d6ff",
+  "categories": ["sports", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

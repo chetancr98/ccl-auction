@@ -1,0 +1,255 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Core app palette. Change these first when trying dark combinations. */
+  --app-bg: #060914;
+  --app-surface: rgba(255,255,255,.045);
+  --app-surface-strong: rgba(255,255,255,.08);
+  --app-elevated: rgba(5,9,20,.72);
+  --app-backdrop:
+    radial-gradient(circle at 20% 10%, rgba(57,214,255,.16), transparent 32%),
+    radial-gradient(circle at 78% 8%, rgba(255,202,95,.14), transparent 28%),
+    linear-gradient(135deg,#060914,#0a1329 48%,#120b24);
+  --header-bg: rgba(6,9,20,.78);
+  --hero-bg: linear-gradient(135deg,#123567,#111936 50%,#24113f);
+  --room-bg: linear-gradient(180deg,#1b416f,#111a34 48%,#0a0f1f);
+
+  --text-primary: #f1f5ff;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
+  --text-inverse: #020617;
+
+  --border-subtle: rgba(255,255,255,.10);
+  --border-strong: rgba(57,214,255,.30);
+  --field-bg: rgba(0,0,0,.20);
+  --field-bg-focus: rgba(0,0,0,.30);
+  --accent-cyan: #ffca5f;
+  --accent-gold: #ffca5f;
+  --shadow-glow: 0 0 40px rgba(57,214,255,.18);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Light palette. Adjust these to test brighter combinations. */
+  --app-bg: #f6f8ff;
+  --app-surface: rgba(255,255,255,.78);
+  --app-surface-strong: rgba(255,255,255,.94);
+  --app-elevated: rgba(255,255,255,.86);
+  --app-backdrop:
+    radial-gradient(circle at 18% 10%, rgba(57,214,255,.22), transparent 30%),
+    radial-gradient(circle at 78% 8%, rgba(255,202,95,.25), transparent 28%),
+    linear-gradient(135deg,#f8fbff,#eef6ff 48%,#fff8e8);
+  --header-bg: rgba(255,255,255,.82);
+  --hero-bg: linear-gradient(135deg,#e8f8ff,#f8fbff 48%,#fff3d6);
+  --room-bg: linear-gradient(180deg,#ffffff,#edf7ff 50%,#fff7e3);
+
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+  --text-inverse: #020617;
+
+  --border-subtle: rgba(15,23,42,.12);
+  --border-strong: rgba(2,132,199,.30);
+  --field-bg: rgba(255,255,255,.74);
+  --field-bg-focus: rgba(255,255,255,.94);
+  --accent-cyan: #0284c7;
+  --accent-gold: #d97706;
+  --shadow-glow: 0 22px 70px rgba(2,132,199,.13);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+button { font: inherit; }
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid rgba(57,214,255,.8);
+  outline-offset: 2px;
+}
+::selection { background: rgba(57,214,255,.28); color: #fff; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 999px; }
+::-webkit-scrollbar-thumb { background: rgba(57,214,255,.32); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(57,214,255,.5); }
+
+.app-theme {
+  background: var(--app-bg);
+  color: var(--text-primary);
+}
+
+.app-backdrop { background: var(--app-backdrop); }
+.app-header {
+  background: var(--header-bg);
+  border-color: var(--border-subtle);
+}
+
+.theme-toggle {
+  background: var(--app-surface);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.shadow-glow { box-shadow: var(--shadow-glow); }
+
+[data-theme] .border-white\/10,
+[data-theme] .border-white\/15 {
+  border-color: var(--border-subtle);
+}
+
+[data-theme] .border-cyan\/20,
+[data-theme] .border-cyan\/25,
+[data-theme] .border-cyan\/30 {
+  border-color: var(--border-strong);
+}
+
+[data-theme] .bg-white\/\[\.025\],
+[data-theme] .bg-white\/\[\.035\],
+[data-theme] .bg-white\/\[\.04\],
+[data-theme] .bg-white\/\[\.045\],
+[data-theme] .bg-white\/\[\.05\],
+[data-theme] .bg-white\/\[\.055\],
+[data-theme] .bg-white\/\[\.08\],
+[data-theme] .bg-white\/10 {
+  background-color: var(--app-surface);
+}
+
+[data-theme] .hover\:bg-white\/10:hover,
+[data-theme] .hover\:bg-white\/15:hover {
+  background-color: var(--app-surface-strong);
+}
+
+[data-theme] .bg-black\/20,
+[data-theme] .bg-black\/25,
+[data-theme] .bg-black\/30 {
+  background-color: var(--field-bg);
+}
+
+[data-theme] .focus\:bg-black\/30:focus {
+  background-color: var(--field-bg-focus);
+}
+
+[data-theme] .text-slate-100,
+[data-theme] .text-white { color: var(--text-primary); }
+[data-theme] .text-slate-300,
+[data-theme] .text-slate-400 { color: var(--text-secondary); }
+[data-theme] .text-slate-500 { color: var(--text-muted); }
+[data-theme] .text-cyan { color: var(--accent-cyan); }
+[data-theme] .text-gold { color: var(--accent-gold); }
+
+[data-theme] .bg-cyan { background-color: var(--accent-cyan); }
+[data-theme] .bg-gold\/10 { background-color: color-mix(in srgb, var(--accent-gold) 14%, transparent); }
+
+[data-theme] .from-cyan { --tw-gradient-from: var(--accent-cyan) var(--tw-gradient-from-position); --tw-gradient-to: color-mix(in srgb, var(--accent-cyan) 0%, transparent) var(--tw-gradient-to-position); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+[data-theme] .from-gold { --tw-gradient-from: var(--accent-gold) var(--tw-gradient-from-position); --tw-gradient-to: color-mix(in srgb, var(--accent-gold) 0%, transparent) var(--tw-gradient-to-position); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+
+[data-theme] section[class*="from-[#123567]"],
+[data-theme] article[class*="from-[#123567]"] {
+  background: var(--hero-bg);
+}
+
+[data-theme] div[class*="from-[#1b416f]"] {
+  background: var(--room-bg);
+}
+
+[data-theme="light"] .text-slate-950 {
+  color: #ffffff;
+}
+
+[data-theme="light"] .bg-cyan.text-slate-950,
+[data-theme="light"] .from-gold.text-slate-950,
+[data-theme="light"] .from-cyan.text-slate-950,
+[data-theme="light"] button.text-slate-950 {
+  color: #ffffff;
+}
+.stadium { background-image: radial-gradient(ellipse at 50% 0%, rgba(28,104,183,.55), transparent 45%), radial-gradient(ellipse at 50% 90%, rgba(31,120,68,.34), transparent 42%), linear-gradient(120deg,#070b17,#101c34 55%,#080b16); }
+.grid-bg { background-image: linear-gradient(rgba(129,151,198,.07) 1px,transparent 1px), linear-gradient(90deg,rgba(129,151,198,.07) 1px,transparent 1px); background-size: 36px 36px; }
+.glass { background: rgba(17,24,39,.72); border: 1px solid rgba(158,185,235,.13); backdrop-filter: blur(16px); }
+.nav-link { color: #9ba9c6; transition: .2s; }
+.nav-link:hover { color: #fff; }
+.metric { background: linear-gradient(145deg,rgba(25,37,63,.9),rgba(12,18,33,.8)); border: 1px solid rgba(123,160,231,.12); }
+.pulse-ring { animation: pulse 1.8s ease-out infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(57,214,255,.35) } 75%,100% { box-shadow: 0 0 0 14px rgba(57,214,255,0) } }
+
+/* ---------- Live auction broadcast styling ---------- */
+
+/* The auction stage stays dark in both themes, like a TV broadcast. */
+.stage {
+  background:
+    radial-gradient(ellipse 60% 55% at 18% 0%, rgba(57,214,255,.22), transparent 70%),
+    radial-gradient(ellipse 55% 50% at 85% 0%, rgba(255,202,95,.18), transparent 70%),
+    radial-gradient(ellipse 80% 45% at 50% 115%, rgba(34,197,94,.16), transparent 70%),
+    linear-gradient(180deg, #0b1630 0%, #070c1c 60%, #050814 100%);
+  color: #f1f5ff;
+}
+.stage-lines {
+  background-image:
+    linear-gradient(rgba(148,178,255,.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148,178,255,.06) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse at 50% 30%, #000 30%, transparent 75%);
+}
+.room-shell:fullscreen { background: #050814; overflow-y: auto; padding: 24px; }
+
+.live-dot { position: relative; }
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  animation: live-ping 1.4s cubic-bezier(0,0,.2,1) infinite;
+}
+@keyframes live-ping { 0% { transform: scale(.6); opacity: .9; } 100% { transform: scale(1.8); opacity: 0; } }
+
+.paddle-leading { animation: paddle-glow 1.6s ease-in-out infinite; }
+@keyframes paddle-glow { 0%,100% { box-shadow: 0 0 0 0 var(--team), 0 18px 50px -12px var(--team); } 50% { box-shadow: 0 0 0 3px var(--team), 0 24px 70px -10px var(--team); } }
+
+.gold-text {
+  background: linear-gradient(180deg, #fff3c4 0%, #ffca5f 45%, #f59e0b 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.ticker { mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot::after, .paddle-leading { animation: none; }
+}
+
+/* Broadcast surfaces keep the dark palette even in light theme. */
+.stage,
+.on-dark {
+  --text-primary: #f1f5ff;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
+  --app-surface: rgba(255,255,255,.05);
+  --app-surface-strong: rgba(255,255,255,.1);
+  --field-bg: rgba(0,0,0,.25);
+  --field-bg-focus: rgba(0,0,0,.35);
+  --border-subtle: rgba(255,255,255,.12);
+  --accent-cyan: #39d6ff;
+  --accent-gold: #ffca5f;
+  color: var(--text-primary);
+}
+[data-theme] .stage .text-slate-950,
+[data-theme] .on-dark .text-slate-950,
+[data-theme] .stage button.text-slate-950,
+[data-theme] .on-dark button.text-slate-950 { color: #0b1020; }
