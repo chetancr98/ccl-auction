@@ -8,30 +8,54 @@ import type { Auction, AuctionEvent, Bid, Player, Team } from "@/lib/types";
 import { Empty, PlayerCard, PlayerPhoto, RoleTag, TeamCrest } from "./ui";
 
 const ROLES = ["All", "Batter", "All-rounder", "Fast bowler", "Spinner", "Wicketkeeper"];
-const MOMENT_MS = 4500;
-const MOMENT_FRESH_MS = 15_000;
+// How old (by the auctioneer's clock) a result may be and still be announced; generous to allow for clock drift between devices.
+const MOMENT_FRESH_MS = 60_000;
 
-/** Shows a SOLD / UNSOLD moment on every screen when a lot closes (events sync through Firestore). */
-function useClosingMoment(history: AuctionEvent[] | undefined) {
-  const last = history?.[history.length - 1];
-  const seen = useRef<string | undefined>(undefined);
-  const [moment, setMoment] = useState<AuctionEvent>();
+export type Moment = { event: AuctionEvent; player: Player; team?: Team };
+
+/*
+ * The SOLD / UNSOLD moment lives at module level, not in component state, so it survives
+ * re-renders, re-mounts and the partial updates Firestore delivers (the auction document and the
+ * event list arrive separately, so the newest event can briefly be an older one).
+ */
+const announced = new Set<string>();
+let activeMoment: Moment | undefined;
+
+function latestResult(history: AuctionEvent[] | undefined) {
+  if (!history) return undefined;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const event = history[index];
+    if (event.kind === "sold" || event.kind === "unsold") return event;
+  }
+  return undefined;
+}
+
+function useClosingMoment(auction: Auction | undefined) {
+  const result = latestResult(auction?.history);
+  const [, rerender] = useState(0);
+
+  if (result && auction && !announced.has(result.id)) {
+    announced.add(result.id);
+    const fresh = result.ts !== undefined && Math.abs(Date.now() - result.ts) < MOMENT_FRESH_MS;
+    const player = auction.players.find((item) => item.id === result.playerId);
+    // A newer result replaces whatever is on screen.
+    if (fresh && player) activeMoment = { event: result, player, team: auction.teams.find((item) => item.id === result.teamId) };
+  }
+
+  // Stays on screen until someone clicks/taps anywhere (or presses Esc) on this device.
+  const close = () => {
+    activeMoment = undefined;
+    rerender((count) => count + 1);
+  };
 
   useEffect(() => {
-    if (!last || last.id === seen.current) return;
-    seen.current = last.id;
-    const fresh = last.ts !== undefined && Math.abs(Date.now() - last.ts) < MOMENT_FRESH_MS;
-    if ((last.kind === "sold" || last.kind === "unsold") && fresh) setMoment(last);
-  }, [last]);
+    if (!activeMoment) return;
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && close();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
-  // Separate effect so re-renders (e.g. new Firestore snapshots) never cancel the auto-close.
-  useEffect(() => {
-    if (!moment) return;
-    const timer = window.setTimeout(() => setMoment(undefined), MOMENT_MS);
-    return () => window.clearTimeout(timer);
-  }, [moment]);
-
-  return [moment, () => setMoment(undefined)] as const;
+  return [activeMoment, close] as const;
 }
 
 export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit: boolean; onSave: (x: Auction) => void }) {
@@ -40,7 +64,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
   const [queueView, setQueueView] = useState<"available" | "unsold">("available");
   const [presenting, setPresenting] = useState(false);
   const shell = useRef<HTMLDivElement>(null);
-  const [moment, closeMoment] = useClosingMoment(auction?.history);
+  const [moment, closeMoment] = useClosingMoment(auction);
 
   useEffect(() => {
     const sync = () => setPresenting(document.fullscreenElement === shell.current && !!shell.current);
@@ -498,7 +522,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
         </div>
       </div>
 
-      <ClosingMoment auction={auction} moment={moment} onClose={closeMoment} />
+      <ClosingMoment moment={moment} onClose={closeMoment} />
     </div>
   );
 }
@@ -543,9 +567,11 @@ function ControlButton({
   );
 }
 
-function ClosingMoment({ auction, moment, onClose }: { auction: Auction; moment?: AuctionEvent; onClose: () => void }) {
-  const who = auction.players.find((item) => item.id === moment?.playerId);
-  const team = auction.teams.find((item) => item.id === moment?.teamId);
+function ClosingMoment({ moment: active, onClose }: { moment?: Moment; onClose: () => void }) {
+  // Player and team are captured when the lot closed, so later data updates cannot blank the card.
+  const moment = active?.event;
+  const who = active?.player;
+  const team = active?.team;
   const sold = moment?.kind === "sold";
   const tone = sold ? team?.color ?? "#ffca5f" : "#f43f5e";
 
@@ -614,6 +640,14 @@ function ClosingMoment({ auction, moment, onClose }: { auction: Auction; moment?
             >
               {sold ? "Sold" : "Unsold"}
             </motion.span>
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.2 }}
+              className="mt-4 text-center text-xs font-bold uppercase tracking-[.25em] text-slate-400"
+            >
+              Tap anywhere to continue
+            </motion.p>
           </motion.div>
         </motion.div>
       )}
