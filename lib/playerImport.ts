@@ -115,3 +115,34 @@ export function photoCandidates(photo?: string) {
   if (!id) return [photo];
   return [`https://drive.google.com/thumbnail?id=${id}&sz=w1000`, `https://lh3.googleusercontent.com/d/${id}=w1000`];
 }
+
+const cellText = (value: unknown) => {
+  if (value === null || value === undefined) return "";
+  if (value instanceof Date) {
+    // Keep dates (e.g. date of birth) in a form parseAge understands.
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  }
+  return String(value).trim();
+};
+
+/**
+ * Reads the first sheet of an Excel .xlsx file (e.g. Google Sheets → Download → Microsoft Excel)
+ * into the same shape as the CSV reader: one object per row keyed by lower-cased heading.
+ */
+export async function readSpreadsheet(file: File) {
+  const { readSheet } = await import("read-excel-file/browser");
+  const data = await readSheet(file);
+  const headerIndex = data.findIndex((row) => row.some((cell) => cellText(cell)));
+  if (headerIndex < 0) return [];
+  const headers = data[headerIndex].map((cell) => cellText(cell).toLowerCase());
+  return data
+    .slice(headerIndex + 1)
+    .filter((row) => row.some((cell) => cellText(cell)))
+    .map((row) =>
+      headers.reduce<Record<string, string>>((acc, header, index) => {
+        if (header) acc[header] = cellText(row[index]);
+        return acc;
+      }, {}),
+    );
+}

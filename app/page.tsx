@@ -6,6 +6,7 @@ import {
   FileUp,
   Gavel,
   Home,
+  ImageDown,
   LogIn,
   LogOut,
   Moon,
@@ -17,10 +18,11 @@ import {
   Wrench,
 } from "lucide-react";
 
+import { DriveFileError, downloadDriveFile, requestDriveAccess } from "@/lib/drive";
 import { firebaseEnabled } from "@/lib/firebase";
 import { deleteAuction as deleteRemoteAuction, saveAuction, signInWithEmail, signInWithGoogle, signOut, subscribeAuctions, watchAuth, type AuthState } from "@/lib/store";
 import { canonicalRole, money, points, ROLES } from "@/lib/format";
-import { detectColumns, isLink, normalizeRole, parseAge, photoFromLink, tidyName } from "@/lib/playerImport";
+import { detectColumns, driveFileId, isLink, normalizeRole, parseAge, photoFromLink, readSpreadsheet, tidyName } from "@/lib/playerImport";
 import type { Auction, IncrementTier, Player, Rules, Team } from "@/lib/types";
 import { Room } from "./components/room";
 import { Empty, Input, Item, List, Panel, PlayerPhoto, TeamCrest } from "./components/ui";
@@ -60,8 +62,9 @@ const readTextFile = (file: File) =>
     reader.readAsText(file);
   });
 
-// Player photos: JPEG keeps them small. Team logos: PNG keeps transparent backgrounds.
-const compressImage = (file: File, maxSize = 360, quality = 0.65, type: "image/jpeg" | "image/png" = "image/jpeg") =>
+// Player photos: JPEG keeps them small (640px is sharp on the big stage card and well under
+// Firestore's 1 MB document limit). Team logos: PNG keeps transparent backgrounds.
+const compressImage = (file: Blob & { name?: string }, maxSize = 640, quality = 0.72, type: "image/jpeg" | "image/png" = "image/jpeg") =>
   new Promise<string>((resolve, reject) => {
     const image = new Image();
     const url = URL.createObjectURL(file);
@@ -82,7 +85,7 @@ const compressImage = (file: File, maxSize = 360, quality = 0.65, type: "image/j
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error(`Could not read ${file.name}`));
+      reject(new Error(`Could not read ${file.name ?? "image"} (unsupported format such as HEIC?)`));
     };
     image.src = url;
   });
@@ -535,7 +538,9 @@ function Builder({
   const [teamForm, setTeamForm] = useState({ name: "", owner: "", short: "", purse: DEFAULT_PURSE, color: nextTeamColor(auction?.teams ?? []), logo: "" });
   const [playerForm, setPlayerForm] = useState({ ...defaultPlayerForm, base: String(rules.basePrice) });
   const [importing, setImporting] = useState(false);
-  const [importMessage, setImportMessage] = useState("Upload a CSV with image files, or one JSON file with embedded photo data.");
+  const [driveBusy, setDriveBusy] = useState(false);
+  const [driveMessage, setDriveMessage] = useState("");
+  const [importMessage, setImportMessage] = useState("Choose the Google Form responses as Excel (.xlsx) or CSV. You can add image files too.");
 
   const defaultBase = () => Math.max(rules.basePrice || 0, rules.minimumBid || 0);
 
@@ -616,6 +621,48 @@ function Builder({
     setPlayerForm((current) => ({ ...current, photo }));
   };
 
+  // Players whose photo is still a Google Drive link (private form uploads need loading with Drive access).
+  const drivePlayers = players.filter((player) => player.photo && driveFileId(player.photo));
+
+  const loadDrivePhotos = async () => {
+    const targets = players.filter((player) => player.photo && driveFileId(player.photo));
+    if (!targets.length) return;
+    setDriveBusy(true);
+    setDriveMessage("Waiting for Google permission…");
+    try {
+      const token = await requestDriveAccess();
+      const results = new Map<string, string>();
+      const failed: string[] = [];
+      const queue = [...targets];
+      let done = 0;
+      setDriveMessage(`Loading photos… 0/${targets.length}`);
+      const worker = async () => {
+        while (queue.length) {
+          const player = queue.shift()!;
+          try {
+            const blob = await downloadDriveFile(driveFileId(player.photo!)!, token);
+            results.set(player.id, await compressImage(blob));
+          } catch (error) {
+            // A disabled Drive API affects every file, so stop and explain once.
+            if (error instanceof DriveFileError && error.status === 403 && error.message.includes("not enabled")) throw error;
+            failed.push(`${player.name} (${error instanceof Error ? error.message : "error"})`);
+          }
+          done += 1;
+          setDriveMessage(`Loading photos… ${done}/${targets.length}`);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, targets.length) }, worker));
+      setPlayers((current) => current.map((player) => (results.has(player.id) ? { ...player, photo: results.get(player.id) } : player)));
+      setDriveMessage(
+        `Loaded ${results.size} of ${targets.length} photos.${failed.length ? ` Could not load: ${failed.slice(0, 4).join("; ")}${failed.length > 4 ? ` and ${failed.length - 4} more` : ""}.` : ""}${results.size ? " Click “Save auction” (or “Create auction”) to keep them." : ""}`,
+      );
+    } catch (error) {
+      setDriveMessage(error instanceof Error ? error.message : "Could not load photos from Google Drive.");
+    } finally {
+      setDriveBusy(false);
+    }
+  };
+
   const importPlayers = async (fileList: FileList | null) => {
     const files = Array.from(fileList || []);
     if (!files.length) return;
@@ -636,6 +683,9 @@ function Builder({
 
       const csv = files.find((file) => file.name.toLowerCase().endsWith(".csv"));
       const json = files.find((file) => file.name.toLowerCase().endsWith(".json"));
+      const sheet = files.find((file) => /.xls[xm]$/i.test(file.name));
+      if (!csv && !sheet && files.some((file) => /.xls$/i.test(file.name)))
+        throw new Error("Old .xls files are not supported. Save it as .xlsx (Excel) or .csv and try again.");
       let imported: Player[] = [];
 
       // Only name, role, age and photo are read from the file. Every imported
@@ -659,8 +709,8 @@ function Builder({
       const photoFor = (cell = "") => (isLink(cell) ? photoFromLink(cell) : images.get(normalizeFileName(cell)));
       let detail = "";
 
-      if (csv) {
-        const rows = parseCsv(await readTextFile(csv));
+      if (csv || sheet) {
+        const rows = csv ? parseCsv(await readTextFile(csv)) : await readSpreadsheet(sheet!);
         const columns = detectColumns(Object.keys(rows[0] ?? {}));
         if (!columns.name) throw new Error("Could not find a name column. Add a column called “Name” (or “Full name”).");
         imported = rows
@@ -692,7 +742,7 @@ function Builder({
           })
           .filter(Boolean) as Player[];
       } else {
-        throw new Error("Select a players.csv or players.json file.");
+        throw new Error("Select an Excel (.xlsx), CSV or JSON file with the players.");
       }
 
       if (!imported.length) throw new Error(`No new players found in the import file.${detail}`);
@@ -904,16 +954,16 @@ function Builder({
                 <div>
                   <h3 className="font-black">Import players from a Google Form or spreadsheet</h3>
                   <p className="mt-1 text-sm leading-6 text-slate-400">
-                    In the form&apos;s response sheet choose <b>File → Download → CSV</b> and select it here. Photo links from the form are used directly. You can also
+                    In the form&apos;s response sheet choose <b>File → Download → Microsoft Excel (.xlsx)</b> or <b>CSV</b> and select it here. Photo links from the form are used directly. You can also
                     select image files together with the CSV and put their file names in the photo column.
                   </p>
                 </div>
               </div>
               <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan to-blue-500 px-4 py-3 text-sm font-black text-slate-950 transition hover:-translate-y-0.5">
-                <FileUp size={16} /> {importing ? "Importing..." : "Choose CSV/JSON and photos"}
+                <FileUp size={16} /> {importing ? "Importing..." : "Choose Excel / CSV (and photos)"}
                 <input
                   type="file"
-                  accept=".csv,.json,image/*"
+                  accept=".xlsx,.xlsm,.xls,.csv,.json,image/*"
                   multiple
                   className="hidden"
                   disabled={importing}
@@ -921,6 +971,28 @@ function Builder({
                 />
               </label>
               <p className="mt-3 text-sm text-slate-400">{importMessage}</p>
+              {(drivePlayers.length > 0 || driveMessage) && (
+                <div className="mt-4 rounded-2xl border border-gold/30 bg-gold/10 p-4">
+                  <p className="text-sm font-bold text-gold">
+                    {drivePlayers.length ? drivePlayers.length === 1 ? "1 player photo is a Google Drive link" : `${drivePlayers.length} player photos are Google Drive links` : "Google Drive photos"}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-300">
+                    Form uploads are private, so load them once with your Google account (the one that owns the form). The app downloads each photo and stores
+                    it with the player, so everyone can see it. Nothing in Drive is changed or made public.
+                  </p>
+                  {drivePlayers.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={loadDrivePhotos}
+                      disabled={driveBusy}
+                      className="mt-3 flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-black text-slate-900 transition hover:-translate-y-0.5 disabled:opacity-60"
+                    >
+                      <ImageDown size={16} /> {driveBusy ? "Loading…" : "Load photos from Google Drive"}
+                    </button>
+                  )}
+                  {driveMessage && <p className="mt-2 text-xs leading-5 text-slate-200">{driveMessage}</p>}
+                </div>
+              )}
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
               <p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">What gets read</p>
@@ -933,8 +1005,8 @@ function Builder({
                 <li>Every imported player starts at the default base price ({money(defaultBase())}).</li>
               </ul>
               <div className="mt-4 rounded-xl border border-gold/25 bg-gold/10 p-3 text-xs leading-5 text-slate-300">
-                <b className="text-gold">Google Drive photos:</b> files uploaded through a Google Form are private by default. In Google Drive, open the form&apos;s upload
-                folder, choose <b>Share → General access → Anyone with the link (Viewer)</b>. Otherwise photos show as initials.
+                <b className="text-gold">Google Drive photos:</b> form uploads are private. After importing, use <b>Load photos from Google Drive</b> (signed in with
+                the Google account that owns the form). Alternatively share the upload folder as <b>Anyone with the link (Viewer)</b>.
               </div>
             </div>
           </div>

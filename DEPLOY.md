@@ -122,6 +122,27 @@ the paid Blaze plan.)
 
 ---
 
+### 7. Photos from Google Form uploads (one-time setup)
+
+Files uploaded through a Google Form are private to the form owner, so the app downloads them
+with the owner's permission (**Builder → Bulk player import → Load photos from Google Drive**).
+This needs the Google Drive API switched on once for the Firebase project:
+
+1. Open <https://console.cloud.google.com/apis/library/drive.googleapis.com?project=ccl-auction-f5c1f>
+   (signed in with the account that owns the Firebase project) and click **Enable**.
+2. Open **Google Auth Platform → Audience** (or **APIs & Services → OAuth consent screen**):
+   - If **Publishing status** is **Testing**, add the Google account that owns the form under
+     **Test users**.
+   - Read-only Drive access is a sensitive permission, so Google may show
+     **"Google hasn't verified this app"** the first time. Click **Advanced → Go to … (unsafe)**;
+     this is your own project, and the app only reads files.
+3. In the app: sign in as admin, import the form's Excel/CSV, click **Load photos from Google Drive**,
+   choose the Google account that owns the form, allow **See and download your Google Drive files**,
+   then click **Save auction**.
+
+The app stores a compressed copy of each photo with the player; nothing in Drive is changed or
+made public. Admins who normally sign in with email/password get Google linked to their account.
+
 ## Part 2 — Deploy on Vercel
 
 The project is a static Next.js export (`output: "export"` in `next.config.ts`),
