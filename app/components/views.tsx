@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarClock, Gavel, Plus, Radio, Sparkles, Trash2, Trophy, Users, WalletCards } from "lucide-react";
-import { money, points } from "@/lib/format";
+import { canonicalRole, money, points } from "@/lib/format";
 import type { Auction, AuctionEvent } from "@/lib/types";
 import { Empty, Metric, Panel, PlayerPhoto, Stat, TeamCrest } from "./ui";
 
@@ -345,7 +345,7 @@ export function TeamSummaryCards({ auction }: { auction: Auction }) {
                         <PlayerPhoto player={player} size="xs" />
                         <span className="min-w-0">
                           <b className="block truncate">{player.name}</b>
-                          <small className="text-slate-500">{player.role}</small>
+                          <small className="text-slate-500">{canonicalRole(player.role)}</small>
                         </span>
                       </span>
                       <span className="font-display font-semibold text-gold">{money(player.price || 0)}</span>

@@ -23,15 +23,32 @@ export const initials =(name: string) =>
     .map((part) => part[0]?.toUpperCase())
     .join("") || "?";
 
+/** The app's player roles. */
+export const ROLES = ["Batter", "Bowler", "All-rounder", "Wicketkeeper"] as const;
+
 const ROLE_COLORS: Record<string, string> = {
   Batter: "#38bdf8",
+  Bowler: "#fb923c",
   "All-rounder": "#a78bfa",
-  "Fast bowler": "#fb923c",
-  Spinner: "#34d399",
   Wicketkeeper: "#facc15",
 };
 
-export const roleColor = (role: string) => ROLE_COLORS[role] ?? "#94a3b8";
+/**
+ * Maps any spelling of a role to one of ROLES, so "All rounder", "Allrounder", "all-rounder",
+ * "Batsman", "WK", "Spinner", "Fast bowler" or "Off spin" all match. Unknown text is kept as typed.
+ */
+export function canonicalRole(value: string | undefined) {
+  const text = (value ?? "").trim();
+  const key = text.toLowerCase().replace(/[^a-z]/g, "");
+  if (!key) return "Batter";
+  if (key.includes("keep") || key.startsWith("wk") || key.includes("wicketk")) return "Wicketkeeper";
+  if (key.includes("allround") || /\ball\b/i.test(text)) return "All-rounder";
+  if (["bowl", "spin", "fast", "pace", "seam", "medium", "legbreak", "offbreak", "swing"].some((word) => key.includes(word))) return "Bowler";
+  if (key.includes("bat")) return "Batter";
+  return text;
+}
+
+export const roleColor = (role: string) => ROLE_COLORS[canonicalRole(role)] ?? "#94a3b8";
 
 /** Picks dark or light text for a solid background colour. */
 export function textOn(hex: string) {

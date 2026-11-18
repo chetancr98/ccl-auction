@@ -19,7 +19,7 @@ import {
 
 import { firebaseEnabled } from "@/lib/firebase";
 import { deleteAuction as deleteRemoteAuction, saveAuction, signInWithEmail, signInWithGoogle, signOut, subscribeAuctions, watchAuth, type AuthState } from "@/lib/store";
-import { money, points } from "@/lib/format";
+import { canonicalRole, money, points, ROLES } from "@/lib/format";
 import { detectColumns, isLink, normalizeRole, parseAge, photoFromLink, tidyName } from "@/lib/playerImport";
 import type { Auction, IncrementTier, Player, Rules, Team } from "@/lib/types";
 import { Room } from "./components/room";
@@ -716,7 +716,7 @@ function Builder({
       id: auction?.id || crypto.randomUUID(),
       rules: { ...rules, incrementTiers: (rules.incrementTiers ?? []).filter((tier) => tier.from > 0 && tier.step > 0).sort((a, b) => a.from - b.from) },
       teams,
-      players,
+      players: players.map((player) => ({ ...player, role: canonicalRole(player.role) })),
       history: auction?.history || [],
       createdAt: auction?.createdAt || new Date().toISOString(),
     };
@@ -862,11 +862,9 @@ function Builder({
               onChange={(event) => setPlayerForm({ ...playerForm, role: event.target.value })}
               className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm outline-none focus:border-cyan"
             >
-              <option>Batter</option>
-              <option>All-rounder</option>
-              <option>Fast bowler</option>
-              <option>Spinner</option>
-              <option>Wicketkeeper</option>
+              {ROLES.map((role) => (
+                <option key={role}>{role}</option>
+              ))}
             </select>
             <Input label="Age" type="number" value={playerForm.age} on={(value) => setPlayerForm({ ...playerForm, age: value })} />
             <Input label="Base price (points)" type="number" value={playerForm.base} on={(value) => setPlayerForm({ ...playerForm, base: value })} />
@@ -876,12 +874,12 @@ function Builder({
             {players.map((item) => (
               <Item
                 key={item.id}
-                label={`${item.photo ? "Photo · " : ""}${item.name} · ${item.role} · ${money(item.base)}`}
+                label={`${item.photo ? "Photo · " : ""}${item.name} · ${canonicalRole(item.role)} · ${money(item.base)}`}
                 edit={() => {
                   setEditingPlayer(item.id);
                   setPlayerForm({
                     name: item.name,
-                    role: item.role,
+                    role: canonicalRole(item.role),
                     age: String(item.age),
                     base: String(item.base),
                     runs: String(item.runs),

@@ -3,11 +3,11 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Gavel, Maximize2, Minimize2, Pause, Play, RotateCcw, Search, Undo2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { incrementAt, money, points, stamp, textOn } from "@/lib/format";
+import { canonicalRole, incrementAt, money, points, ROLES, stamp, textOn } from "@/lib/format";
 import type { Auction, AuctionEvent, Bid, Player, Team } from "@/lib/types";
 import { Empty, PlayerCard, PlayerPhoto, RoleTag, TeamCrest } from "./ui";
 
-const ROLES = ["All", "Batter", "All-rounder", "Fast bowler", "Spinner", "Wicketkeeper"];
+const ROLE_FILTERS = ["All", ...ROLES];
 // How old (by the auctioneer's clock) a result may be and still be announced; generous to allow for clock drift between devices.
 const MOMENT_FRESH_MS = 60_000;
 
@@ -75,7 +75,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
   const queue = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return (auction?.players ?? []).filter(
-      (item) => item.status === queueView && (role === "All" || item.role === role) && (!needle || item.name.toLowerCase().includes(needle)),
+      (item) => item.status === queueView && (role === "All" || canonicalRole(item.role) === role) && (!needle || item.name.toLowerCase().includes(needle)),
     );
   }, [auction?.players, query, role, queueView]);
 
@@ -249,7 +249,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search players" className="w-full bg-transparent outline-none placeholder:text-slate-500" />
             </label>
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {ROLES.map((item) => (
+              {ROLE_FILTERS.map((item) => (
                 <button
                   key={item}
                   onClick={() => setRole(item)}
@@ -273,7 +273,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                     <span className="min-w-0 flex-1">
                       <b className="block truncate">{item.name}</b>
                       <small className="block text-slate-400">
-                        {item.role} · Base {money(item.base)}
+                        {canonicalRole(item.role)} · Base {money(item.base)}
                       </small>
                     </span>
                     {queueView === "unsold" && <RotateCcw size={15} className="shrink-0 text-gold" aria-label="Re-auction" />}

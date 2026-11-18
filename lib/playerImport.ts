@@ -1,3 +1,5 @@
+import { canonicalRole } from "./format";
+
 /*
  * Helpers for importing players from spreadsheets such as a Google Form's responses
  * (Sheets → File → Download → CSV). Column headings there are the form's questions,
@@ -56,16 +58,7 @@ export function tidyName(value: string) {
 }
 
 /** Maps free-text answers ("All rounder", "Batsman", "WK", "Off spin") to the app's roles. */
-export function normalizeRole(value: string) {
-  const text = value.trim().toLowerCase();
-  if (!text) return "Batter";
-  if (has(text, "keep", "wk", "w/k")) return "Wicketkeeper";
-  if (has(text, "all")) return "All-rounder";
-  if (has(text, "spin", "leg break", "off break")) return "Spinner";
-  if (has(text, "bowl", "fast", "pace", "seam", "medium")) return "Fast bowler";
-  if (has(text, "bat")) return "Batter";
-  return value.trim();
-}
+export const normalizeRole = (value: string) => canonicalRole(value);
 
 /** Accepts a plain age ("24") or a date of birth ("15/08/2001", "2001-08-15"). */
 export function parseAge(value: string, fallback = 20) {

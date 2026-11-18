@@ -2,7 +2,7 @@
 
 import { ArrowDown, ArrowUp, ArrowUpDown, Crown, Search, Users } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { money, points } from "@/lib/format";
+import { canonicalRole, money, points } from "@/lib/format";
 import type { Auction, Player, Team } from "@/lib/types";
 import { Empty, PlayerPhoto, RoleTag, StatusTag, TeamCrest } from "./ui";
 import { SubDashboard, TeamSummaryCards } from "./views";
@@ -38,7 +38,7 @@ export function Results({ auction }: { auction?: Auction }) {
         case "team":
           return (player.team ?? "~").toLowerCase();
         case "role":
-          return player.role;
+          return canonicalRole(player.role);
         case "base":
           return player.base;
         case "status":
@@ -213,7 +213,7 @@ function Cell({ column, player, team, rank }: { column: Column["key"]; player: P
           <PlayerPhoto player={player} size="sm" />
           <span className="min-w-0">
             <b className="block truncate font-display text-lg font-bold uppercase tracking-wide">{player.name}</b>
-            <span className="text-xs text-slate-500 md:hidden">{player.role}</span>
+            <span className="text-xs text-slate-500 md:hidden">{canonicalRole(player.role)}</span>
           </span>
         </span>
       );
