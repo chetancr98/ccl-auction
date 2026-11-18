@@ -1,7 +1,33 @@
-import type { CSSProperties, ReactNode } from "react";
+"use client";
+
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { initials, roleColor, textOn } from "@/lib/format";
+import { photoCandidates } from "@/lib/playerImport";
 import type { Player, Team } from "@/lib/types";
+
+/**
+ * Shows a stored photo (uploaded image or web/Drive link). Drive links try more than one Google
+ * image endpoint; if every source fails (e.g. the file is not shared publicly) the fallback shows.
+ */
+function PhotoImage({ photo, alt, className, fallback }: { photo?: string; alt: string; className: string; fallback: ReactNode }) {
+  const [failed, setFailed] = useState<{ photo?: string; count: number }>({ photo, count: 0 });
+  const sources = photoCandidates(photo);
+  const attempt = failed.photo === photo ? failed.count : 0;
+  if (attempt >= sources.length) return <>{fallback}</>;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      key={sources[attempt]}
+      src={sources[attempt]}
+      alt={alt}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed({ photo, count: attempt + 1 })}
+      className={className}
+    />
+  );
+}
 
 export function PlayerPhoto({
   player,
@@ -24,12 +50,12 @@ export function PlayerPhoto({
       className={`${sizes[size]} relative grid shrink-0 place-items-center overflow-hidden border border-white/15 shadow-[0_16px_45px_rgba(0,0,0,.28)]`}
       style={{ background: `linear-gradient(145deg, ${tone}55, #0b1226 70%)` }}
     >
-      {player.photo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={player.photo} alt={player.name} className="h-full w-full object-cover" />
-      ) : (
-        <span className="font-display font-bold tracking-wide text-white/90">{initials(player.name)}</span>
-      )}
+      <PhotoImage
+        photo={player.photo}
+        alt={player.name}
+        className="h-full w-full object-cover object-top"
+        fallback={<span className="font-display font-bold tracking-wide text-white/90">{initials(player.name)}</span>}
+      />
     </span>
   );
 }
@@ -82,12 +108,12 @@ export function PlayerCard({
       className={`relative isolate overflow-hidden rounded-[1.75rem] border border-white/15 shadow-[0_30px_80px_-20px_rgba(0,0,0,.8)] ${className}`}
       style={{ background: `radial-gradient(120% 80% at 50% 10%, ${tone}66, #0b1226 65%)`, ...style }}
     >
-      {player.photo ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={player.photo} alt={player.name} className="absolute inset-0 -z-10 h-full w-full object-cover object-top" />
-      ) : (
-        <span className="absolute inset-x-0 top-[12%] -z-10 text-center font-display text-[9rem] font-extrabold italic leading-none text-white/15">{initials(player.name)}</span>
-      )}
+      <PhotoImage
+        photo={player.photo}
+        alt={player.name}
+        className="absolute inset-0 -z-10 h-full w-full object-cover object-top"
+        fallback={<span className="absolute inset-x-0 top-[12%] -z-10 text-center font-display text-[9rem] font-extrabold italic leading-none text-white/15">{initials(player.name)}</span>}
+      />
       <div className="absolute inset-0 -z-10 bg-gradient-to-t from-[#040713] via-[#040713]/55 via-45% to-transparent" />
       {badge && <div className="absolute left-3 right-3 top-3 flex flex-wrap items-start justify-between gap-2">{badge}</div>}
       <div className="absolute inset-x-0 bottom-0 p-4 md:p-5">{children}</div>

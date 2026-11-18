@@ -20,6 +20,7 @@ import {
 import { firebaseEnabled } from "@/lib/firebase";
 import { deleteAuction as deleteRemoteAuction, saveAuction, signInWithEmail, signInWithGoogle, signOut, subscribeAuctions, watchAuth, type AuthState } from "@/lib/store";
 import { money, points } from "@/lib/format";
+import { detectColumns, isLink, normalizeRole, parseAge, photoFromLink, tidyName } from "@/lib/playerImport";
 import type { Auction, IncrementTier, Player, Rules, Team } from "@/lib/types";
 import { Room } from "./components/room";
 import { Empty, Input, Item, List, Panel, PlayerPhoto, TeamCrest } from "./components/ui";
@@ -595,7 +596,7 @@ function Builder({
       status: existing?.status || "available",
       team: existing?.team,
       price: existing?.price,
-      photo: playerForm.photo || existing?.photo,
+      photo: (isLink(playerForm.photo) ? photoFromLink(playerForm.photo) : playerForm.photo) || existing?.photo,
     };
 
     setPlayers((current) => (editingPlayer ? current.map((item) => (item.id === editingPlayer ? next : item)) : [...current, next]));
@@ -640,13 +641,13 @@ function Builder({
       // Only name, role, age and photo are read from the file. Every imported
       // player starts at the auction's default base price (editable afterwards).
       const toPlayer = (row: { name?: unknown; role?: unknown; age?: unknown }, photo?: string): Player | undefined => {
-        const name = String(row.name ?? "").trim();
+        const name = tidyName(String(row.name ?? ""));
         if (!name) return undefined;
         return {
           id: crypto.randomUUID(),
           name,
-          role: String(row.role ?? "").trim() || "Batter",
-          age: Number(row.age) || 20,
+          role: normalizeRole(String(row.role ?? "")),
+          age: parseAge(String(row.age ?? "")),
           base: defaultBase(),
           runs: 0,
           wickets: 0,
@@ -654,17 +655,39 @@ function Builder({
           photo,
         };
       };
+      // A photo cell can be a link (Google Form upload / Drive / any image URL) or a file name.
+      const photoFor = (cell = "") => (isLink(cell) ? photoFromLink(cell) : images.get(normalizeFileName(cell)));
+      let detail = "";
 
       if (csv) {
         const rows = parseCsv(await readTextFile(csv));
-        imported = rows.map((row) => toPlayer(row, images.get(normalizeFileName(row.photo)))).filter(Boolean) as Player[];
+        const columns = detectColumns(Object.keys(rows[0] ?? {}));
+        if (!columns.name) throw new Error("Could not find a name column. Add a column called “Name” (or “Full name”).");
+        imported = rows
+          .map((row) =>
+            toPlayer(
+              { name: row[columns.name!], role: columns.role ? row[columns.role] : "", age: columns.age ? row[columns.age] : "" },
+              columns.photo ? photoFor(row[columns.photo]) : undefined,
+            ),
+          )
+          .filter(Boolean) as Player[];
+        // Google Forms often has repeat submissions; keep the latest row for each name.
+        const byName = new Map<string, Player>();
+        imported.forEach((player) => byName.set(player.name.toLowerCase(), player));
+        const repeats = imported.length - byName.size;
+        imported = [...byName.values()].filter((player) => !players.some((existing) => existing.name.toLowerCase() === player.name.toLowerCase()));
+        const skipped = byName.size - imported.length;
+        const used = (["name", "role", "age", "photo"] as const)
+          .map((key) => `${key} ← “${columns[key] ?? "not found"}”`)
+          .join(", ");
+        detail = ` Columns: ${used}.${repeats ? ` Merged ${repeats} repeat submissions.` : ""}${skipped ? ` Skipped ${skipped} already in the list.` : ""}`;
       } else if (json) {
         const payload = JSON.parse(await readTextFile(json));
         const rows = Array.isArray(payload) ? payload : payload.players;
         if (!Array.isArray(rows)) throw new Error("JSON must be an array or contain a players array.");
         imported = rows
           .map((row: { name?: string; role?: string; age?: number | string; photo?: string; photoFile?: string }) => {
-            const photo = row.photo?.startsWith("data:") ? row.photo : images.get(normalizeFileName(row.photo || row.photoFile));
+            const photo = row.photo?.startsWith("data:") ? row.photo : photoFor(row.photo || row.photoFile);
             return toPlayer(row, photo);
           })
           .filter(Boolean) as Player[];
@@ -672,10 +695,13 @@ function Builder({
         throw new Error("Select a players.csv or players.json file.");
       }
 
-      if (!imported.length) throw new Error("No valid players found in the import file.");
+      if (!imported.length) throw new Error(`No new players found in the import file.${detail}`);
       setPlayers((current) => [...current, ...imported]);
-      const withPhotos = imported.filter((player) => player.photo).length;
-      setImportMessage(`Imported ${imported.length} players. Matched photos for ${withPhotos}.`);
+      const linked = imported.filter((player) => player.photo && isLink(player.photo)).length;
+      const uploaded = imported.filter((player) => player.photo && !isLink(player.photo)).length;
+      setImportMessage(
+        `Imported ${imported.length} players. Photos: ${linked} from links, ${uploaded} from uploaded files, ${imported.length - linked - uploaded} without.${detail}`,
+      );
     } catch (error) {
       setImportMessage(error instanceof Error ? error.message : "Could not import players.");
     } finally {
@@ -823,6 +849,13 @@ function Builder({
                 <input type="file" accept="image/*" className="hidden" onChange={(event) => handlePhoto(event.currentTarget.files?.[0])} />
               </label>
             </div>
+            <Input
+              label="…or paste a photo link (Google Drive / image URL)"
+              type="url"
+              required={false}
+              value={isLink(playerForm.photo) ? playerForm.photo : ""}
+              on={(value) => setPlayerForm({ ...playerForm, photo: value.trim() })}
+            />
             <Input label="Player name" value={playerForm.name} on={(value) => setPlayerForm({ ...playerForm, name: value })} />
             <select
               value={playerForm.role}
@@ -871,9 +904,10 @@ function Builder({
                   <FileUp size={20} />
                 </span>
                 <div>
-                  <h3 className="font-black">Import a full player list with photos</h3>
+                  <h3 className="font-black">Import players from a Google Form or spreadsheet</h3>
                   <p className="mt-1 text-sm leading-6 text-slate-400">
-                    Select `players.csv` and the referenced image files together. The importer matches the CSV `photo` column to image filenames.
+                    In the form&apos;s response sheet choose <b>File → Download → CSV</b> and select it here. Photo links from the form are used directly. You can also
+                    select image files together with the CSV and put their file names in the photo column.
                   </p>
                 </div>
               </div>
@@ -891,12 +925,19 @@ function Builder({
               <p className="mt-3 text-sm text-slate-400">{importMessage}</p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
-              <p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">CSV columns</p>
-              <code className="mt-3 block rounded-xl bg-black/30 p-3 text-xs text-slate-300">name,role,age,photo</code>
-              <p className="mt-3 text-sm leading-6 text-slate-400">
-                The `photo` value should match an image filename, for example `virat.jpg`. JSON imports can use the same fields, or embed `photo` as a data URL. Any other
-                columns are ignored. Every imported player starts at the default base price ({money(defaultBase())}).
-              </p>
+              <p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">What gets read</p>
+              <ul className="mt-3 space-y-1.5 text-sm leading-6 text-slate-400">
+                <li>
+                  <b className="text-slate-200">Name, role, age, photo</b>: found by their headings (e.g. “Full Name”, “Playing role”, “Age” or “Date of birth”,
+                  “Upload your photo”). Other columns are ignored.
+                </li>
+                <li>Roles like “All rounder”, “Batsman”, “WK” or “Off spin” are tidied into the app&apos;s roles. Repeat submissions keep the latest one.</li>
+                <li>Every imported player starts at the default base price ({money(defaultBase())}).</li>
+              </ul>
+              <div className="mt-4 rounded-xl border border-gold/25 bg-gold/10 p-3 text-xs leading-5 text-slate-300">
+                <b className="text-gold">Google Drive photos:</b> files uploaded through a Google Form are private by default. In Google Drive, open the form&apos;s upload
+                folder, choose <b>Share → General access → Anyone with the link (Viewer)</b>. Otherwise photos show as initials.
+              </div>
             </div>
           </div>
         </Panel>

@@ -71,7 +71,7 @@ body {
   margin: 0;
   background: var(--app-bg);
   color: var(--text-primary);
-  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: Outfit, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   text-rendering: optimizeLegibility;
 }
 button { font: inherit; }
@@ -253,3 +253,6 @@ select:focus-visible {
 [data-theme] .on-dark .text-slate-950,
 [data-theme] .stage button.text-slate-950,
 [data-theme] .on-dark button.text-slate-950 { color: #0b1020; }
+
+/* A touch of tracking keeps condensed Teko headings readable. */
+.font-display { letter-spacing: .02em; }
