@@ -124,9 +124,10 @@ the paid Blaze plan.)
 
 ### 7. Photos from Google Form uploads (one-time setup)
 
-Files uploaded through a Google Form are private to the form owner, so the app downloads them
-with the owner's permission (**Builder → Bulk player import → Load photos from Google Drive**).
-This needs the Google Drive API switched on once for the Firebase project:
+Files uploaded through a Google Form are private to the form owners, so a Drive link can't be
+shown to everyone. When the form's Excel/CSV is imported (**Builder → Bulk player import**), the
+import asks once for an owner's Google account, downloads every photo and saves a copy with the
+player, so every viewer sees it. This needs the Google Drive API switched on once:
 
 1. Open <https://console.cloud.google.com/apis/library/drive.googleapis.com?project=ccl-auction-f5c1f>
    (signed in with the account that owns the Firebase project) and click **Enable**.
@@ -136,12 +137,14 @@ This needs the Google Drive API switched on once for the Firebase project:
    - Read-only Drive access is a sensitive permission, so Google may show
      **"Google hasn't verified this app"** the first time. Click **Advanced → Go to … (unsafe)**;
      this is your own project, and the app only reads files.
-3. In the app: sign in as admin, import the form's Excel/CSV, click **Load photos from Google Drive**,
-   choose the Google account that owns the form, allow **See and download your Google Drive files**,
-   then click **Save auction**.
+3. In the app: sign in as admin, import the form's Excel/CSV, click **Continue with Google**,
+   choose a Google account that can open the uploads and allow **See and download your Google
+   Drive files**. For an existing auction the players and photos are saved straight away; for a
+   new one click **Create auction**.
 
-The app stores a compressed copy of each photo with the player; nothing in Drive is changed or
-made public. Admins who normally sign in with email/password get Google linked to their account.
+To fix photos later, import the same file again: players already in the list are updated rather
+than duplicated. Nothing in Drive is changed or made public, and the admin's own login is not
+affected by the Google account chosen in the popup.
 
 ## Part 2 — Deploy on Vercel
 

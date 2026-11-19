@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { compressImage } from "@/lib/image";
+import { downloadDrivePhotos, prepareDriveAccess, requestDriveAccess, type DrivePhotoJob } from "@/lib/drive";
 import { firebaseEnabled } from "@/lib/firebase";
 import { deleteAuction as deleteRemoteAuction, saveAuction, signInWithEmail, signInWithGoogle, signOut, subscribeAuctions, watchAuth, type AuthState } from "@/lib/store";
 import { canonicalRole, CURRENCY, money, ROLES } from "@/lib/format";
@@ -26,7 +27,6 @@ import { detectColumns, driveFileId, isLink, normalizeRole, parseAge, photoFromL
 import type { Auction, IncrementTier, Player, Rules, Team } from "@/lib/types";
 import { Room } from "./components/room";
 import { Empty, Input, Item, List, Panel, PlayerPhoto, TeamCrest } from "./components/ui";
-import { DrivePhotoBanner, drivePhotoPlayers } from "./components/drive-photos";
 import { Results } from "./components/results";
 import { Dashboard } from "./components/views";
 
@@ -210,9 +210,6 @@ export default function App() {
   };
 
   const auction = auctions.find((x) => x.id === active);
-  // Newest auctions, for merging Drive photos into whatever the data looks like right now.
-  const latestAuctions = useRef(auctions);
-  latestAuctions.current = auctions;
   const save = (next: Auction) => {
     setAuctions((current) => current.map((item) => (item.id === next.id ? next : item)));
     if (firebaseEnabled) {
@@ -221,12 +218,6 @@ export default function App() {
         next,
       ).catch(reportWriteError);
     }
-  };
-  // Stores downloaded Drive photos (player id -> image) into the latest version of an auction.
-  const savePhotos = (auctionId: string, photos: Map<string, string>) => {
-    const latest = latestAuctions.current.find((item) => item.id === auctionId);
-    if (!latest) return;
-    save({ ...latest, players: latest.players.map((player) => (photos.has(player.id) ? { ...player, photo: photos.get(player.id) } : player)) });
   };
   const create = (next: Auction) => {
     setAuctions((current) => [...current, next]);
@@ -319,10 +310,6 @@ export default function App() {
             </button>
           </div>
         )}
-        {canEdit &&
-          auctions
-            .filter((item) => drivePhotoPlayers(item).length > 0)
-            .map((item) => <DrivePhotoBanner key={item.id} auction={item} onPhotos={savePhotos} />)}
         {canEdit && deviceAuctions.length > 0 && (
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-gold/10 p-4 text-sm">
             <span>
@@ -585,6 +572,11 @@ function Builder({
   const [playerForm, setPlayerForm] = useState({ ...defaultPlayerForm, base: String(rules.basePrice) });
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("Choose the Google Form responses as Excel (.xlsx) or CSV. You can add image files too.");
+  // An import waiting for Google permission to copy its Drive photos into the app.
+  const [driveStep, setDriveStep] = useState<{ players: Player[]; jobs: DrivePhotoJob[]; detail: string }>();
+  const [importFailures, setImportFailures] = useState<string[]>([]);
+  const importRun = useRef(0);
+  const stopImport = useRef(false);
 
   const defaultBase = () => Math.max(rules.basePrice || 0, rules.minimumBid || 0);
 
@@ -645,7 +637,7 @@ function Builder({
       status: existing?.status || "available",
       team: existing?.team,
       price: existing?.price,
-      photo: (isLink(playerForm.photo) ? photoFromLink(playerForm.photo) : playerForm.photo) || existing?.photo,
+      photo: playerForm.photo || existing?.photo,
     };
 
     setPlayers((current) => (editingPlayer ? current.map((item) => (item.id === editingPlayer ? next : item)) : [...current, next]));
@@ -665,32 +657,103 @@ function Builder({
     setPlayerForm((current) => ({ ...current, photo }));
   };
 
-  // Players whose photo is still a Google Drive link (saved into the app from the banner at the top).
-  const drivePlayers = players.filter((player) => player.photo && driveFileId(player.photo));
+  // Builds the auction from the builder's current state (used by Save and by import).
+  const buildAuction = (playerList: Player[]): Auction => ({
+    id: auction?.id || crypto.randomUUID(),
+    rules: { ...rules, incrementTiers: (rules.incrementTiers ?? []).filter((tier) => tier.from > 0 && tier.step > 0).sort((a, b) => a.from - b.from) },
+    teams,
+    players: playerList.map((player) => ({ ...player, role: canonicalRole(player.role) })),
+    history: auction?.history || [],
+    createdAt: auction?.createdAt || new Date().toISOString(),
+    // Keep the player currently on stage; saving rules or teams must not end a live lot.
+    live: auction?.live,
+  });
 
-  // When photos are saved into the app (from the banner), adopt them here too, so saving the
-  // Builder later can never put the old Drive links back.
-  useEffect(() => {
-    if (!auction) return;
-    const saved = new Map(auction.players.filter((player) => player.photo && !driveFileId(player.photo)).map((player) => [player.id, player.photo!]));
-    setPlayers((current) => {
-      let changed = false;
-      const next = current.map((player) => {
-        if (player.photo && driveFileId(player.photo) && saved.has(player.id)) {
-          changed = true;
-          return { ...player, photo: saved.get(player.id) };
-        }
-        return player;
+  /**
+   * Adds imported players to the list. A name that is already there is updated (role, age, photo)
+   * instead of duplicated, so re-importing the form fixes photos. Drive links are never kept:
+   * every photo is either stored in the app or left empty, so everyone sees the same thing.
+   * For an existing auction the result is saved to the database straight away.
+   */
+  const finishImport = (incoming: Player[], detail: string) => {
+    const next = [...players];
+    let added = 0;
+    let updated = 0;
+    for (const player of incoming) {
+      const index = next.findIndex((existing) => existing.name.toLowerCase() === player.name.toLowerCase());
+      if (index < 0) {
+        next.push(player);
+        added += 1;
+      } else {
+        const existing = next[index];
+        const keptPhoto = existing.photo && !driveFileId(existing.photo) ? existing.photo : undefined;
+        next[index] = { ...existing, role: player.role, age: player.age, photo: player.photo ?? keptPhoto };
+        updated += 1;
+      }
+    }
+    setPlayers(next);
+    if (auction) onSave(buildAuction(next));
+    const withPhoto = incoming.filter((player) => player.photo).length;
+    setImportMessage(
+      `Imported ${added} new and updated ${updated} existing players; ${withPhoto} with photos, ${incoming.length - withPhoto} without.${detail}${
+        auction ? " Saved." : " Click “Create auction” to save."
+      }`,
+    );
+  };
+
+  /** Asks an owner's Google account for read-only Drive access, then copies every Drive photo into the import. */
+  const importDrivePhotos = async () => {
+    if (!driveStep) return;
+    const run = (importRun.current += 1);
+    stopImport.current = false;
+    setImporting(true);
+    setImportFailures([]);
+    setImportMessage(
+      "Waiting for the Google window… Choose an account that can open the form's uploads. If no window opened, allow pop-ups for this site and try again.",
+    );
+    try {
+      const access = await requestDriveAccess();
+      if (run !== importRun.current) return; // cancelled while the popup was open
+      const who = access.email ? ` as ${access.email}` : "";
+      const total = driveStep.jobs.length;
+      const { photos, failures, fatal } = await downloadDrivePhotos(driveStep.jobs, access.token, {
+        onProgress: (done) => setImportMessage(`Saving photos${who}… ${done}/${total}`),
+        shouldStop: () => stopImport.current,
       });
-      return changed ? next : current;
-    });
-  }, [auction]);
+      if (fatal) throw new Error(fatal);
+      if (stopImport.current) throw new Error("Import cancelled. Nothing was changed.");
+      setImportFailures(failures);
+      finishImport(
+        driveStep.players.map((player) => (player.photo && driveFileId(player.photo) ? { ...player, photo: photos.get(player.id) } : player)),
+        driveStep.detail,
+      );
+      setDriveStep(undefined);
+    } catch (error) {
+      if (run === importRun.current) setImportMessage(error instanceof Error ? error.message : "Could not copy the photos from Google Drive.");
+    } finally {
+      if (run === importRun.current) setImporting(false);
+    }
+  };
+
+  const cancelImport = () => {
+    importRun.current += 1;
+    stopImport.current = true;
+    setImporting(false);
+    setImportMessage("Import cancelled. Nothing was changed.");
+  };
+
+  // Get Google sign-in ready before the click, so its popup opens straight away (and isn't blocked).
+  useEffect(() => {
+    if (driveStep) void prepareDriveAccess().catch(() => undefined);
+  }, [driveStep]);
 
   const importPlayers = async (fileList: FileList | null) => {
     const files = Array.from(fileList || []);
     if (!files.length) return;
 
     setImporting(true);
+    setDriveStep(undefined);
+    setImportFailures([]);
     setImportMessage("Reading player file and preparing photos...");
 
     try {
@@ -748,12 +811,11 @@ function Builder({
         const byName = new Map<string, Player>();
         imported.forEach((player) => byName.set(player.name.toLowerCase(), player));
         const repeats = imported.length - byName.size;
-        imported = [...byName.values()].filter((player) => !players.some((existing) => existing.name.toLowerCase() === player.name.toLowerCase()));
-        const skipped = byName.size - imported.length;
+        imported = [...byName.values()];
         const used = (["name", "role", "age", "photo"] as const)
           .map((key) => `${key} ← “${columns[key] ?? "not found"}”`)
           .join(", ");
-        detail = ` Columns: ${used}.${repeats ? ` Merged ${repeats} repeat submissions.` : ""}${skipped ? ` Skipped ${skipped} already in the list.` : ""}`;
+        detail = ` Columns: ${used}.${repeats ? ` Merged ${repeats} repeat submissions.` : ""}`;
       } else if (json) {
         const payload = JSON.parse(await readTextFile(json));
         const rows = Array.isArray(payload) ? payload : payload.players;
@@ -768,13 +830,17 @@ function Builder({
         throw new Error("Select an Excel (.xlsx), CSV or JSON file with the players.");
       }
 
-      if (!imported.length) throw new Error(`No new players found in the import file.${detail}`);
-      setPlayers((current) => [...current, ...imported]);
-      const linked = imported.filter((player) => player.photo && isLink(player.photo)).length;
-      const uploaded = imported.filter((player) => player.photo && !isLink(player.photo)).length;
-      setImportMessage(
-        `Imported ${imported.length} players. Photos: ${linked} from links, ${uploaded} from uploaded files, ${imported.length - linked - uploaded} without.${detail}`,
-      );
+      if (!imported.length) throw new Error(`No players found in the import file.${detail}`);
+      const jobs: DrivePhotoJob[] = imported
+        .filter((player) => player.photo && driveFileId(player.photo))
+        .map((player) => ({ key: player.id, fileId: driveFileId(player.photo!)!, label: player.name }));
+      if (jobs.length) {
+        // Drive photos are private: copy them into the app first (one Google permission step).
+        setDriveStep({ players: imported, jobs, detail });
+        setImportMessage(`Found ${imported.length} players. ${jobs.length} photos are in Google Drive and will be copied into the app so everyone can see them.`);
+      } else {
+        finishImport(imported, detail);
+      }
     } catch (error) {
       setImportMessage(error instanceof Error ? error.message : "Could not import players.");
     } finally {
@@ -785,16 +851,7 @@ function Builder({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!rules.name) return;
-    const next: Auction = {
-      id: auction?.id || crypto.randomUUID(),
-      rules: { ...rules, incrementTiers: (rules.incrementTiers ?? []).filter((tier) => tier.from > 0 && tier.step > 0).sort((a, b) => a.from - b.from) },
-      teams,
-      players: players.map((player) => ({ ...player, role: canonicalRole(player.role) })),
-      history: auction?.history || [],
-      createdAt: auction?.createdAt || new Date().toISOString(),
-      // Keep the player currently on stage; saving rules or teams must not end a live lot.
-      live: auction?.live,
-    };
+    const next = buildAuction(players);
     auction ? onSave(next) : onCreate(next);
   };
 
@@ -924,13 +981,6 @@ function Builder({
                 <input type="file" accept="image/*" className="hidden" onChange={(event) => handlePhoto(event.currentTarget.files?.[0])} />
               </label>
             </div>
-            <Input
-              label="…or paste a photo link (Google Drive / image URL)"
-              type="url"
-              required={false}
-              value={isLink(playerForm.photo) ? playerForm.photo : ""}
-              on={(value) => setPlayerForm({ ...playerForm, photo: value.trim() })}
-            />
             <Input label="Player name" value={playerForm.name} on={(value) => setPlayerForm({ ...playerForm, name: value })} />
             <select
               value={playerForm.role}
@@ -996,18 +1046,50 @@ function Builder({
                 />
               </label>
               <p className="mt-3 text-sm text-slate-400">{importMessage}</p>
-              {drivePlayers.length > 0 && (
-                <div className="mt-4 rounded-2xl border border-gold/30 bg-gold/10 p-4 text-sm">
-                  <p className="font-bold text-gold">
-                    Next step: save {drivePlayers.length === 1 ? "1 photo" : `${drivePlayers.length} photos`} into the app
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-slate-300">
-                    {auction
-                      ? "Click “Save auction”, then use “Save photos to the app” in the gold bar at the top of the page."
-                      : "Click “Create auction”, then use “Save photos to the app” in the gold bar at the top of the page."}{" "}
-                    Until then only people with access to the Google Drive files can see these photos.
+              {driveStep && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {!importing ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={importDrivePhotos}
+                        className="flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-black text-slate-900 transition hover:-translate-y-0.5"
+                      >
+                        <FileUp size={16} /> Continue with Google
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          finishImport(
+                            driveStep.players.map((player) => (player.photo && driveFileId(player.photo) ? { ...player, photo: undefined } : player)),
+                            driveStep.detail,
+                          );
+                          setDriveStep(undefined);
+                        }}
+                        className="rounded-xl bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/15"
+                      >
+                        Import without these photos
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" onClick={cancelImport} className="rounded-xl bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/15">
+                      Cancel
+                    </button>
+                  )}
+                  <p className="w-full text-[11px] leading-5 text-slate-400">
+                    Pick a Google account that can open the form&apos;s uploads (one of the owners). Your admin login stays as it is.
                   </p>
                 </div>
+              )}
+              {importFailures.length > 0 && (
+                <details className="mt-2 text-xs text-slate-300">
+                  <summary className="cursor-pointer font-bold text-rose-300">Photos that could not be copied ({importFailures.length})</summary>
+                  <ul className="mt-1 max-h-40 list-disc space-y-0.5 overflow-auto pl-5">
+                    {importFailures.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </details>
               )}
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
@@ -1021,8 +1103,8 @@ function Builder({
                 <li>Every imported player starts at the default base price ({money(defaultBase())}).</li>
               </ul>
               <div className="mt-4 rounded-xl border border-gold/25 bg-gold/10 p-3 text-xs leading-5 text-slate-300">
-                <b className="text-gold">Google Drive photos:</b> form uploads are private. After importing, use <b>Load photos from Google Drive</b> (signed in with
-                the Google account that owns the form). Alternatively share the upload folder as <b>Anyone with the link (Viewer)</b>.
+                <b className="text-gold">Google Drive photos:</b> form uploads are private, so the import asks once for a form owner&apos;s Google account and copies
+                every photo into the app. To fix photos later, import the same file again; existing players are updated.
               </div>
             </div>
           </div>

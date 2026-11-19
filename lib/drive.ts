@@ -1,10 +1,11 @@
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { getDriveHelperAuth } from "./firebase";
+import { compressImage } from "./image";
 
 /*
- * Google Form uploads live privately in the form owners' Drive, so a plain link cannot be shown
- * to everyone. Instead one of the owners grants read-only Drive access once; the app downloads
- * every photo with that access and stores a compressed copy with the player.
+ * Google Form uploads live privately in the form owners' Drive, so a Drive link cannot be shown
+ * to everyone. During import, an owner grants read-only Drive access once; the app downloads every
+ * photo with that access and stores a compressed copy with the player in the database.
  *
  * The Google sign-in here is separate from the admin's app login (see getDriveHelperAuth), so any
  * admin can borrow either owner account's access without being logged out.
@@ -13,6 +14,15 @@ import { getDriveHelperAuth } from "./firebase";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 
 export type DriveAccess = { token: string; email: string | null };
+
+/**
+ * Gets the separate Google sign-in ready ahead of time. Browsers only allow a popup straight after
+ * a click, so if this preparation happened during the click the popup could be blocked silently.
+ */
+export async function prepareDriveAccess() {
+  const auth = getDriveHelperAuth();
+  if (auth) await auth.authStateReady();
+}
 
 /** Opens a Google popup (with an account chooser) and returns a short-lived read-only Drive token. */
 export async function requestDriveAccess(): Promise<DriveAccess> {
@@ -36,6 +46,7 @@ export async function requestDriveAccess(): Promise<DriveAccess> {
     if (code.includes("popup-closed") || code.includes("cancelled")) throw new Error("Google sign-in was closed before finishing.");
     if (code.includes("popup-blocked")) throw new Error("The browser blocked the Google popup. Allow popups for this site and try again.");
     if (code.includes("unauthorized-domain")) throw new Error("This web address is not in Firebase → Authentication → Authorized domains yet.");
+    if (code.includes("operation-not-supported")) throw new Error("This screen can't open Google sign-in (e.g. the installed app). Open the site in Chrome and try again.");
     throw error;
   }
 }
@@ -72,12 +83,12 @@ async function fetchOnce(id: string, token: string) {
     throw new DriveFileError("Google is busy (rate limit)", response.status, true);
   if (response.status === 404) throw new DriveFileError("not found, or this Google account cannot open it", 404);
   if (response.status === 403) throw new DriveFileError("this Google account has no access to it", 403);
-  if (response.status === 401) throw new DriveFileError("Google access expired; click Load again to continue", 401);
+  if (response.status === 401) throw new DriveFileError("Google access expired; import the file again to continue", 401);
   throw new DriveFileError(reason || `Drive returned ${response.status}`, response.status);
 }
 
 /** Downloads one Drive file's bytes, retrying rate limits and temporary errors with back-off. */
-export async function downloadDriveFile(id: string, token: string, attempts = 4) {
+async function downloadDriveFile(id: string, token: string, attempts = 4) {
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await fetchOnce(id, token);
@@ -90,7 +101,7 @@ export async function downloadDriveFile(id: string, token: string, attempts = 4)
 }
 
 /** iPhone photos (HEIC/HEIF) cannot be drawn by most browsers; convert them to JPEG first. */
-export async function toBrowserImage(blob: Blob) {
+async function toBrowserImage(blob: Blob) {
   const head = new Uint8Array(await blob.slice(0, 32).arrayBuffer());
   const brand = String.fromCharCode(...head.slice(4, 12));
   const isHeic = /heic|heif/i.test(blob.type) || /ftyp(heic|heix|hevc|heim|heis|mif1|msf1)/.test(brand);
@@ -98,4 +109,39 @@ export async function toBrowserImage(blob: Blob) {
   const { default: heic2any } = await import("heic2any");
   const converted = await heic2any({ blob, toType: "image/jpeg", quality: 0.85 });
   return Array.isArray(converted) ? converted[0] : converted;
+}
+
+export type DrivePhotoJob = { key: string; fileId: string; label: string };
+
+/**
+ * Downloads and shrinks many Drive photos (6 at a time) with one access token.
+ * Returns the finished photos by key and a reason for each one that failed. Stops early when
+ * `shouldStop` says so or when a problem affects every file (expired access, Drive API disabled).
+ */
+export async function downloadDrivePhotos(
+  jobs: DrivePhotoJob[],
+  token: string,
+  { onProgress, shouldStop }: { onProgress?: (done: number) => void; shouldStop?: () => boolean } = {},
+) {
+  const photos = new Map<string, string>();
+  const failures: string[] = [];
+  let fatal: string | undefined;
+  let done = 0;
+  const queue = [...jobs];
+  const worker = async () => {
+    while (queue.length && !fatal && !shouldStop?.()) {
+      const job = queue.shift()!;
+      try {
+        photos.set(job.key, await compressImage(await toBrowserImage(await downloadDriveFile(job.fileId, token))));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "error";
+        if (error instanceof DriveFileError && (error.status === 401 || message.includes("not enabled"))) fatal = message;
+        else failures.push(`${job.label}: ${message}`);
+      }
+      done += 1;
+      onProgress?.(done);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, jobs.length) }, worker));
+  return { photos, failures, fatal };
 }

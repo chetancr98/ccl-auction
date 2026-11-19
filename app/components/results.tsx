@@ -2,7 +2,7 @@
 
 import { ArrowDown, ArrowUp, ArrowUpDown, Crown, Search, Users } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { canonicalRole, money, points } from "@/lib/format";
+import { canonicalRole, money } from "@/lib/format";
 import type { Auction, Player, Team } from "@/lib/types";
 import { Empty, PlayerPhoto, RoleTag, StatusTag, TeamCrest } from "./ui";
 import { SubDashboard, TeamSummaryCards } from "./views";
