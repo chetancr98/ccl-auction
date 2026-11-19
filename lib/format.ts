@@ -1,5 +1,8 @@
-export const points = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
-export const money = (n: number) => `${points(n)} pts`;
+/** Shown before every amount. Change this one value to use another symbol (e.g. "💵" or "₹"). */
+export const CURRENCY = "💰";
+export const points = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+// The word joiner (U+2060) keeps the symbol and the number on the same line.
+export const money = (n: number) => `${CURRENCY}⁠${points(n)}`;
 export const stamp = () => new Date().toLocaleString();
 
 /** The raise that applies when the current bid is `amount` (highest tier whose `from` has been reached). */

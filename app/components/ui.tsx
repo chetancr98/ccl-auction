@@ -48,7 +48,7 @@ export function PlayerPhoto({
   return (
     <span
       className={`${sizes[size]} relative grid shrink-0 place-items-center overflow-hidden border border-white/15 shadow-[0_16px_45px_rgba(0,0,0,.28)]`}
-      style={{ background: `linear-gradient(145deg, ${tone}55, #0b1226 70%)` }}
+      style={{ background: `linear-gradient(145deg, ${tone}55, var(--p-surface) 70%)` }}
     >
       <PhotoImage
         photo={player.photo}
@@ -106,7 +106,7 @@ export function PlayerCard({
   return (
     <div
       className={`relative isolate overflow-hidden rounded-[1.75rem] border border-white/15 shadow-[0_30px_80px_-20px_rgba(0,0,0,.8)] ${className}`}
-      style={{ background: `radial-gradient(120% 80% at 50% 10%, ${tone}66, #0b1226 65%)`, ...style }}
+      style={{ background: `radial-gradient(120% 80% at 50% 10%, ${tone}66, var(--p-surface) 65%)`, ...style }}
     >
       <PhotoImage
         photo={player.photo}

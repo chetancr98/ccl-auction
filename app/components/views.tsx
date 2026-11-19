@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarClock, Gavel, Plus, Radio, Sparkles, Trash2, Trophy, Users, WalletCards } from "lucide-react";
-import { canonicalRole, money, points } from "@/lib/format";
+import { canonicalRole, CURRENCY, money, points } from "@/lib/format";
 import type { Auction, AuctionEvent } from "@/lib/types";
 import { Empty, Metric, Panel, PlayerPhoto, Stat, TeamCrest } from "./ui";
 
@@ -57,7 +57,7 @@ export function Dashboard({
             <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.24em] text-gold">
               <Sparkles size={16} /> CCL family presents
             </p>
-            <h1 className="mt-3 font-display text-6xl font-extrabold uppercase italic leading-[.9] tracking-wide md:text-8xl">
+            <h1 className="mt-3 font-display text-5xl font-extrabold uppercase italic leading-[.95] md:text-7xl">
               Carpool Cricket
               <span className="gold-text block">Player Auction</span>
             </h1>
@@ -68,7 +68,7 @@ export function Dashboard({
               {spotlight && (
                 <button
                   onClick={() => onOpen(spotlight.id, "room")}
-                  className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-gold to-orange-400 px-5 py-3 text-sm font-black uppercase tracking-wide text-slate-950 shadow-[0_14px_40px_-10px_rgba(255,202,95,.8)] transition hover:-translate-y-0.5"
+                  className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-gold to-gold2 px-5 py-3 text-sm font-black uppercase tracking-wide text-slate-950 shadow-[0_14px_40px_-10px_rgb(var(--p-highlight)/.8)] transition hover:-translate-y-0.5"
                 >
                   <Gavel size={17} /> {spotlight.live ? "Watch live" : "Enter auction room"}
                 </button>
@@ -94,7 +94,10 @@ export function Dashboard({
                   <div className="min-w-0">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">On stage</p>
                     <p className="truncate font-display text-xl font-semibold uppercase text-white">{spotPlayer.name}</p>
-                    <p className="gold-text font-display text-3xl font-bold">{points(spotBid?.amount ?? spotPlayer.base)} pts</p>
+                    <p className="gold-text font-display text-3xl font-bold">
+                      <span className="emoji mr-1.5 text-[.7em]">{CURRENCY}</span>
+                      {points(spotBid?.amount ?? spotPlayer.base)}
+                    </p>
                   </div>
                 </div>
               ) : (
@@ -156,7 +159,7 @@ export function Dashboard({
                   <div className="mt-4 grid grid-cols-3 gap-2 text-center">
                     <Stat label="Teams" value={item.teams.length} />
                     <Stat label="Sold" value={`${sold}/${item.players.length}`} />
-                    <Stat label="Spent" value={points(spend)} />
+                    <Stat label="Spent" value={money(spend)} />
                   </div>
                   <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/10">
                     <div className="h-full rounded-full bg-gradient-to-r from-cyan to-gold" style={{ width: `${item.players.length ? (done / item.players.length) * 100 : 0}%` }} />
@@ -164,7 +167,7 @@ export function Dashboard({
                   <div className="mt-5 flex flex-wrap gap-2">
                     <button
                       onClick={() => onOpen(item.id, "room")}
-                      className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold to-orange-400 px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-950"
+                      className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-gold to-gold2 px-3 py-2 text-xs font-black uppercase tracking-wide text-slate-950"
                     >
                       <Radio size={14} /> Auction room
                     </button>
@@ -221,7 +224,7 @@ export function SubDashboard({ auction, showTitle = true }: { auction: Auction; 
         <Metric icon={<Users size={18} />} label="Teams" value={auction.teams.length} />
         <Metric label="Players left" value={auction.players.filter((player) => player.status === "available").length} hint={`${auction.players.length} in the pool`} />
         <Metric icon={<Trophy size={18} />} label="Sold" value={sold.length} hint={`${auction.players.filter((player) => player.status === "unsold").length} unsold`} />
-        <Metric icon={<WalletCards size={18} />} label="Total spend" value={points(spend)} hint="points" />
+        <Metric icon={<WalletCards size={18} />} label="Total spend" value={money(spend)} />
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
@@ -241,7 +244,7 @@ export function SubDashboard({ auction, showTitle = true }: { auction: Auction; 
                         {player.team}
                       </small>
                     </span>
-                    <span className="font-display text-lg font-semibold text-gold">{points(player.price ?? 0)}</span>
+                    <span className="font-display text-lg font-semibold text-gold">{money(player.price ?? 0)}</span>
                   </li>
                 );
               })}
@@ -260,7 +263,7 @@ export function SubDashboard({ auction, showTitle = true }: { auction: Auction; 
                     <TeamCrest team={team} size="sm" />
                     <b className="truncate">{team.name}</b>
                   </span>
-                  <span className="shrink-0 font-display font-semibold">{points(team.purse)}</span>
+                  <span className="shrink-0 font-display font-semibold">{money(team.purse)}</span>
                 </div>
                 <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-white/10">
                   <div className="h-full" style={{ width: `${(team.purse / maxPurse) * 100}%`, background: team.color }} />
@@ -327,8 +330,8 @@ export function TeamSummaryCards({ auction }: { auction: Auction }) {
             </div>
 
             <div className="relative mt-5 grid grid-cols-3 gap-2 text-center">
-              <Stat label="Purse" value={points(team.purse)} />
-              <Stat label="Spent" value={points(team.spent)} />
+              <Stat label="Purse" value={money(team.purse)} />
+              <Stat label="Spent" value={money(team.spent)} />
               <Stat label="Slots" value={team.slots} />
             </div>
             <div className="relative mt-4 h-2 rounded-full bg-white/10">

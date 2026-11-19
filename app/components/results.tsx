@@ -100,13 +100,13 @@ export function Results({ auction }: { auction?: Auction }) {
         <BannerArt />
         <div className="relative px-6 pb-0 pt-8 md:px-10 md:pt-10">
           <p className="text-xs font-bold uppercase tracking-[.26em] text-gold">Auction results</p>
-          <h1 className="mt-1 font-display text-5xl font-extrabold uppercase italic leading-none tracking-wide md:text-6xl">
+          <h1 className="mt-1 font-display text-4xl font-extrabold uppercase italic leading-none md:text-5xl">
             {auction.rules.name}
           </h1>
           <div className="mt-5 flex flex-wrap gap-x-8 gap-y-3 text-sm">
             <BannerStat label="Players sold" value={counts.sold} />
-            <BannerStat label="Total spend" value={`${points(totalSpend)} pts`} />
-            {topBuy && <BannerStat label="Top buy" value={`${topBuy.name} · ${points(topBuy.price ?? 0)}`} />}
+            <BannerStat label="Total spend" value={money(totalSpend)} />
+            {topBuy && <BannerStat label="Top buy" value={`${topBuy.name} · ${money(topBuy.price ?? 0)}`} />}
           </div>
           <nav className="-mx-2 mt-7 flex gap-1 overflow-x-auto">
             {SECTIONS.map((item) => (

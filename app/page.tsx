@@ -10,6 +10,7 @@ import {
   LogIn,
   LogOut,
   Moon,
+  Palette,
   Plus,
   Radio,
   Sun,
@@ -21,7 +22,7 @@ import {
 import { DriveFileError, downloadDriveFile, requestDriveAccess, toBrowserImage } from "@/lib/drive";
 import { firebaseEnabled } from "@/lib/firebase";
 import { deleteAuction as deleteRemoteAuction, saveAuction, signInWithEmail, signInWithGoogle, signOut, subscribeAuctions, watchAuth, type AuthState } from "@/lib/store";
-import { canonicalRole, money, points, ROLES } from "@/lib/format";
+import { canonicalRole, CURRENCY, money, ROLES } from "@/lib/format";
 import { detectColumns, driveFileId, isLink, normalizeRole, parseAge, photoFromLink, readSpreadsheet, tidyName } from "@/lib/playerImport";
 import type { Auction, IncrementTier, Player, Rules, Team } from "@/lib/types";
 import { Room } from "./components/room";
@@ -40,6 +41,17 @@ const emptyRules: Rules = {
   scheduledAt: "",
 };
 
+// Colour palettes (defined in globals.css). PALETTE is the default; the header picker lets each device try others.
+const PALETTES = [
+  { id: "gold", name: "Gold night", accent: "#ffca5f", highlight: "#ffca5f", bg: "#0b1630" },
+  { id: "royal", name: "Royal purple", accent: "#a78bfa", highlight: "#fbbf24", bg: "#1d1048" },
+  { id: "emerald", name: "Emerald pitch", accent: "#34d399", highlight: "#bef264", bg: "#0a3324" },
+  { id: "crimson", name: "Crimson fire", accent: "#ff5c6c", highlight: "#ffb830", bg: "#3a0d18" },
+  { id: "ocean", name: "Ocean blue", accent: "#38bdf8", highlight: "#fb923c", bg: "#0b2e55" },
+  { id: "neon", name: "Neon night", accent: "#2dd4bf", highlight: "#f472b6", bg: "#121a33" },
+] as const;
+type PaletteId = (typeof PALETTES)[number]["id"];
+const PALETTE: PaletteId = "gold";
 const DEFAULT_PURSE = "1000";
 // Distinct, high-contrast team colours; new teams get the next unused one.
 const TEAM_COLORS = ["#ef4444", "#3b82f6", "#facc15", "#22c55e", "#a855f7", "#f97316", "#ec4899", "#14b8a6", "#6366f1", "#84cc16"];
@@ -137,6 +149,7 @@ export default function App() {
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [active, setActive] = useState<string>();
   const [theme, setTheme] = useState<Theme>("dark");
+  const [palette, setPalette] = useState<PaletteId>(PALETTE);
   const [hydrated, setHydrated] = useState(false);
   const [loaded, setLoaded] = useState(!firebaseEnabled);
   const [authState, setAuthState] = useState<AuthState>({ user: null, isAdmin: !firebaseEnabled, ready: !firebaseEnabled });
@@ -154,6 +167,7 @@ export default function App() {
       else setAuctions(data.auctions || []);
       setActive(data.active);
       setTheme(data.theme === "light" ? "light" : "dark");
+      if (PALETTES.some((item) => item.id === data.palette)) setPalette(data.palette);
     } catch {
     } finally {
       setHydrated(true);
@@ -211,11 +225,11 @@ export default function App() {
     try {
       // With Firebase the auctions live in Firestore; only per-device preferences stay here.
       const local = firebaseEnabled ? deviceAuctions : auctions;
-      localStorage.setItem("ccl-auction-v5", JSON.stringify({ auctions: local, active, theme }));
+      localStorage.setItem("ccl-auction-v5", JSON.stringify({ auctions: local, active, theme, palette }));
     } catch (error) {
       console.warn("Could not save auction data. Try using fewer or smaller player photos.", error);
     }
-  }, [auctions, deviceAuctions, active, theme, hydrated]);
+  }, [auctions, deviceAuctions, active, theme, palette, hydrated]);
 
   const reportWriteError = (error: unknown) => {
     setAuctions(stored.current);
@@ -270,12 +284,18 @@ export default function App() {
   };
 
   return (
-    <main data-theme={theme} className="app-theme min-h-screen overflow-hidden">
-      <div className="app-backdrop pointer-events-none fixed inset-0" />
+    <main data-theme={theme} data-palette={palette} className="app-theme min-h-screen overflow-hidden">
+      <div className="app-backdrop pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
+        {/* Live background: two sweeping floodlights and slowly rising sparkles. */}
+        <div className="bg-beam bg-beam-left" />
+        <div className="bg-beam bg-beam-right" />
+        <div className="bg-sparks" />
+        <div className="bg-sparks bg-sparks-slow" />
+      </div>
       <header className="app-header sticky top-0 z-30 border-b backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
           <button onClick={() => setTab("dashboard")} className="group flex items-center gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-gold to-orange-500 text-slate-950 shadow-[0_8px_24px_-6px_rgba(255,202,95,.7)] transition group-hover:rotate-[-8deg]">
+            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-gold to-gold2 text-slate-950 shadow-[0_8px_24px_-6px_rgb(var(--p-highlight)/.7)] transition group-hover:rotate-[-8deg]">
               <Gavel size={20} />
             </span>
             <span className="text-left leading-none">
@@ -297,6 +317,7 @@ export default function App() {
             >
               {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
             </button>
+            <PalettePicker value={palette} onChange={setPalette} />
             {firebaseEnabled && <AuthMenu state={authState} />}
           </div>
         </div>
@@ -366,8 +387,8 @@ function IncrementTiersEditor({ rules, onChange }: { rules: Rules; onChange: (ti
   };
   const sorted = [...tiers].filter((tier) => tier.from > 0 && tier.step > 0).sort((a, b) => a.from - b.from);
   const summary = [
-    `Below ${sorted[0] ? points(sorted[0].from) : "∞"}: +${points(rules.increment)}`,
-    ...sorted.map((tier, index) => `${points(tier.from)}${sorted[index + 1] ? `–${points(sorted[index + 1].from - 1)}` : "+"}: +${points(tier.step)}`),
+    `Below ${sorted[0] ? money(sorted[0].from) : "∞"}: +${money(rules.increment)}`,
+    ...sorted.map((tier, index) => `${money(tier.from)}${sorted[index + 1] ? `–${money(sorted[index + 1].from - 1)}` : "+"}: +${money(tier.step)}`),
   ];
 
   return (
@@ -391,7 +412,7 @@ function IncrementTiersEditor({ rules, onChange }: { rules: Rules; onChange: (ti
                 aria-label={`Step-up ${index + 1} starts at`}
                 className="w-20 rounded-xl border border-white/10 bg-black/30 px-2 py-1.5 text-sm text-white outline-none focus:border-cyan"
               />
-              <span className="shrink-0">pts, raise by</span>
+              <span className="shrink-0">, raise by</span>
               <input
                 type="number"
                 min={1}
@@ -412,7 +433,7 @@ function IncrementTiersEditor({ rules, onChange }: { rules: Rules; onChange: (ti
           ))}
         </div>
       )}
-      <p className="mt-2 text-[11px] leading-5 text-slate-500">{tiers.length ? summary.join(" · ") : `Every raise is +${points(rules.increment)}. Add a step-up to raise faster at higher prices.`}</p>
+      <p className="mt-2 text-[11px] leading-5 text-slate-500">{tiers.length ? summary.join(" · ") : `Every raise is +${money(rules.increment)}. Add a step-up to raise faster at higher prices.`}</p>
     </div>
   );
 }
@@ -440,6 +461,45 @@ function NavButton({ tab, active, live, onClick, compact }: { tab: (typeof tabs)
       {meta.label}
       {live && <span className="live-dot absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-live text-live" aria-label="Live now" />}
     </button>
+  );
+}
+
+function PalettePicker({ value, onChange }: { value: PaletteId; onChange: (id: PaletteId) => void }) {
+  const [open, setOpen] = useState(false);
+  const current = PALETTES.find((item) => item.id === value) ?? PALETTES[0];
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((state) => !state)}
+        aria-label="Colour palette"
+        title="Colour palette"
+        className="theme-toggle flex h-10 items-center gap-1 rounded-2xl border px-2.5 transition hover:-translate-y-0.5"
+      >
+        <Palette size={16} />
+        <span className="h-3 w-3 rounded-full" style={{ background: current.accent }} />
+        <span className="h-3 w-3 rounded-full" style={{ background: current.highlight }} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-40 mt-2 w-60 rounded-2xl border border-white/10 bg-[var(--p-surface)] p-2 shadow-glow">
+          {PALETTES.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => {
+                onChange(item.id);
+                setOpen(false);
+              }}
+              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition hover:bg-white/10 ${item.id === value ? "bg-white/10" : ""}`}
+            >
+              <span className="flex h-7 w-12 items-center justify-center gap-1 rounded-lg" style={{ background: item.bg }}>
+                <span className="h-3 w-3 rounded-full" style={{ background: item.accent }} />
+                <span className="h-3 w-3 rounded-full" style={{ background: item.highlight }} />
+              </span>
+              {item.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -491,7 +551,7 @@ function AuthMenu({ state }: { state: AuthState }) {
         <LogIn size={14} /> <span className="hidden sm:inline">Admin sign in</span><span className="sm:hidden">Sign in</span>
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-40 mt-2 w-72 space-y-3 rounded-2xl border border-white/10 bg-[#0d1428] p-4 shadow-glow">
+        <div className="absolute right-0 top-full z-40 mt-2 w-72 space-y-3 rounded-2xl border border-white/10 bg-[var(--p-surface)] p-4 shadow-glow">
           <button
             disabled={busy}
             onClick={() => run(signInWithGoogle)}
@@ -824,11 +884,11 @@ function Builder({
           <form onSubmit={submit} className="space-y-3">
             <Input label="Auction name" value={rules.name} on={(value) => setRules({ ...rules, name: value })} />
             <Input label="Scheduled time (optional)" type="datetime-local" required={false} value={rules.scheduledAt} on={(value) => setRules({ ...rules, scheduledAt: value })} />
-            <Input label="Minimum bid (points)" type="number" value={String(rules.minimumBid)} on={(value) => setRules({ ...rules, minimumBid: +value })} />
-            <Input label="Bid increment (points)" type="number" value={String(rules.increment)} on={(value) => setRules({ ...rules, increment: +value })} />
+            <Input label={`Minimum bid (${CURRENCY})`} type="number" value={String(rules.minimumBid)} on={(value) => setRules({ ...rules, minimumBid: +value })} />
+            <Input label={`Bid increment (${CURRENCY})`} type="number" value={String(rules.increment)} on={(value) => setRules({ ...rules, increment: +value })} />
             <IncrementTiersEditor rules={rules} onChange={(incrementTiers) => setRules({ ...rules, incrementTiers })} />
             <div>
-              <Input label="Default base price for every player (points)" type="number" value={String(rules.basePrice)} on={changeBasePrice} />
+              <Input label={`Default base price for every player (${CURRENCY})`} type="number" value={String(rules.basePrice)} on={changeBasePrice} />
               <div className="mt-1 flex items-center justify-between gap-2">
                 <small className="text-[11px] text-slate-500">Applied to all players. You can still edit any player individually.</small>
                 <button
@@ -862,7 +922,7 @@ function Builder({
             <Input label="Team name" value={teamForm.name} on={(value) => setTeamForm({ ...teamForm, name: value })} />
             <Input label="Owner" value={teamForm.owner} on={(value) => setTeamForm({ ...teamForm, owner: value })} />
             <Input label="Short code" value={teamForm.short} on={(value) => setTeamForm({ ...teamForm, short: value })} />
-            <Input label="Total purse (points)" type="number" value={teamForm.purse} on={(value) => setTeamForm({ ...teamForm, purse: value })} />
+            <Input label={`Total purse (${CURRENCY})`} type="number" value={teamForm.purse} on={(value) => setTeamForm({ ...teamForm, purse: value })} />
             <div className="text-xs font-semibold text-slate-300">
               Team colour
               <div className="mt-1 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/20 p-2.5">
@@ -959,7 +1019,7 @@ function Builder({
               ))}
             </select>
             <Input label="Age" type="number" value={playerForm.age} on={(value) => setPlayerForm({ ...playerForm, age: value })} />
-            <Input label="Base price (points)" type="number" value={playerForm.base} on={(value) => setPlayerForm({ ...playerForm, base: value })} />
+            <Input label={`Base price (${CURRENCY})`} type="number" value={playerForm.base} on={(value) => setPlayerForm({ ...playerForm, base: value })} />
             <button className="rounded-2xl bg-white/10 py-3 text-sm font-bold transition hover:bg-white/15">{editingPlayer ? "Save player" : "Add player"}</button>
           </form>
           <List>

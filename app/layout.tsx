@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from "next";
 // Fonts are bundled with the app (no Google Fonts request at build or run time).
-// Teko: condensed broadcast-scoreboard face for names, prices and headings.
-import "@fontsource/teko/500.css";
-import "@fontsource/teko/600.css";
-import "@fontsource/teko/700.css";
+// Montserrat: bold, wide and easy to read from a distance, for names, prices and headings.
+import "@fontsource/montserrat/600.css";
+import "@fontsource/montserrat/700.css";
+import "@fontsource/montserrat/800.css";
+import "@fontsource/montserrat/800-italic.css";
 // Outfit: clean, modern body text.
 import "@fontsource/outfit/400.css";
 import "@fontsource/outfit/500.css";

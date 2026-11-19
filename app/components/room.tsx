@@ -1,9 +1,10 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Gavel, Maximize2, Minimize2, Pause, Play, RotateCcw, Search, Undo2, X } from "lucide-react";
+import { Gavel, Maximize2, Minimize2, Pause, Play, RotateCcw, Search, Undo2, Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { canonicalRole, incrementAt, money, points, ROLES, stamp, textOn } from "@/lib/format";
+import { celebrate, setSoundEnabled, soundEnabled, unlockAudio } from "@/lib/celebrate";
+import { canonicalRole, CURRENCY, incrementAt, money, points, ROLES, stamp, textOn } from "@/lib/format";
 import type { Auction, AuctionEvent, Bid, Player, Team } from "@/lib/types";
 import { Empty, PlayerCard, PlayerPhoto, RoleTag, TeamCrest } from "./ui";
 
@@ -55,7 +56,46 @@ function useClosingMoment(auction: Auction | undefined) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  // Confetti and sound, once per result on this device.
+  const momentId = activeMoment?.event.id;
+  useEffect(() => {
+    if (!activeMoment || !momentId || celebrated.has(momentId)) return;
+    celebrated.add(momentId);
+    celebrate(activeMoment.event.kind === "sold" ? "sold" : "unsold", activeMoment.team?.color);
+  }, [momentId]);
+
   return [activeMoment, close] as const;
+}
+
+const celebrated = new Set<string>();
+
+/** Sound on/off switch for this device (sounds need one click or tap on the page before they can play). */
+function SoundToggle() {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    setOn(soundEnabled());
+    // Browsers only allow audio after an interaction; unlock on the first one.
+    const unlock = () => unlockAudio();
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+  return (
+    <button
+      onClick={() => {
+        setSoundEnabled(!on);
+        setOn(!on);
+      }}
+      aria-pressed={on}
+      title={on ? "Mute cheers" : "Turn on cheers"}
+      className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[.05] px-3 py-2 text-xs font-bold transition hover:bg-white/10"
+    >
+      {on ? <Volume2 size={15} /> : <VolumeX size={15} />} {on ? "Sound on" : "Sound off"}
+    </button>
+  );
 }
 
 export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit: boolean; onSave: (x: Auction) => void }) {
@@ -210,12 +250,13 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
             {running ? "Live · " : ""}
             {status.label}
           </p>
-          <h1 className="mt-1 truncate font-display text-4xl font-extrabold uppercase italic tracking-wide md:text-5xl">{auction.rules.name}</h1>
+          <h1 className="mt-1 truncate font-display text-3xl font-extrabold uppercase italic md:text-4xl">{auction.rules.name}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Chip label="Lots done" value={`${closed}/${total}`} />
           <Chip label="Sold" value={soldCount} />
           <Chip label="Unsold" value={unsoldCount} />
+          <SoundToggle />
           <button
             onClick={togglePresent}
             className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[.05] px-3 py-2 text-xs font-bold transition hover:bg-white/10"
@@ -331,7 +372,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                     }
                   >
                     <p className="text-[11px] font-bold uppercase tracking-[.24em] text-gold">On the block · Lot {closed + 1}</p>
-                    <h2 className="mt-1 break-words font-display text-5xl font-extrabold uppercase italic leading-[.9] tracking-wide text-white drop-shadow-[0_4px_18px_rgba(0,0,0,.8)] md:text-6xl">
+                    <h2 className="mt-1 break-words font-display text-4xl font-extrabold uppercase italic leading-[.95] text-white drop-shadow-[0_4px_18px_rgba(0,0,0,.8)] md:text-5xl">
                       {player.name}
                     </h2>
                     <p className="mt-2 text-sm font-semibold text-slate-200">
@@ -339,7 +380,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                     </p>
                   </PlayerCard>
                   <div className="min-w-0">
-                    <div className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
+                    <div className="grid gap-4 2xl:grid-cols-[1.2fr_1fr]">
                       {/* Current bid */}
                       <div
                         className="relative overflow-hidden rounded-3xl border p-5 transition-colors duration-500"
@@ -356,10 +397,10 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                             animate={{ scale: 1, opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -8 }}
                             transition={{ type: "spring", stiffness: 420, damping: 22 }}
-                            className="gold-text mt-1 pr-2 font-display text-7xl font-extrabold italic leading-none md:text-8xl"
+                            className="gold-text mt-1 whitespace-nowrap pr-2 font-display text-6xl font-extrabold italic leading-none md:text-7xl"
                           >
+                            <span className="emoji mr-2 inline-block align-middle text-[.6em]">{CURRENCY}</span>
                             {points(high ? high.amount : openingBid)}
-                            <span className="ml-2 text-2xl">pts</span>
                           </motion.p>
                         </AnimatePresence>
                         <div className="mt-4 flex items-center gap-3">
@@ -368,7 +409,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                               <TeamCrest team={leader} size="sm" />
                               <div className="min-w-0">
                                 <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Leading</p>
-                                <p className="truncate font-display text-xl font-semibold uppercase tracking-wide">{leader.name}</p>
+                                <p className="line-clamp-2 font-display text-lg font-bold uppercase leading-tight">{leader.name}</p>
                               </div>
                             </>
                           ) : (
@@ -397,7 +438,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                                     <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: team?.color ?? "#94a3b8" }} />
                                     <span className="truncate font-semibold">{bid.team}</span>
                                   </span>
-                                  <span className="font-display font-semibold text-gold">{points(bid.amount)}</span>
+                                  <span className="shrink-0 whitespace-nowrap font-display font-semibold text-gold">{money(bid.amount)}</span>
                                 </motion.div>
                               );
                             })}
@@ -414,7 +455,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
 
           {/* Auctioneer controls */}
           {showAdmin && player && (
-            <div className="on-dark sticky bottom-20 z-20 grid grid-cols-2 md:bottom-3 gap-2 rounded-[1.5rem] border border-white/10 bg-[#0a1124]/90 p-2 shadow-2xl backdrop-blur-xl sm:grid-cols-4">
+            <div className="on-dark sticky bottom-20 z-20 grid grid-cols-2 md:bottom-3 gap-2 rounded-[1.5rem] border border-white/10 bg-[var(--p-stage-2)] p-2 shadow-2xl backdrop-blur-xl sm:grid-cols-4">
               <ControlButton onClick={toggleBidding} tone={running ? "neutral" : "go"} icon={running ? <Pause size={17} /> : <Play size={17} />}>
                 {running ? "Pause" : bids.length ? "Resume" : "Open bidding"}
               </ControlButton>
@@ -425,7 +466,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                 Unsold
               </ControlButton>
               <ControlButton onClick={() => close(true)} disabled={!high} tone="gold" icon={<Gavel size={17} />}>
-                {high ? `Sold · ${points(high.amount)}` : "Sold"}
+                {high ? `Sold · ${money(high.amount)}` : "Sold"}
               </ControlButton>
             </div>
           )}
@@ -435,7 +476,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
             <div className="mb-3 flex items-end justify-between gap-3">
               <h2 className="font-display text-xl font-semibold uppercase tracking-wide">Team paddles</h2>
               {player && <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Next bid · <span className="text-gold">{money(nextAmount)}</span>
-                  {high ? <span className="text-slate-500"> (+{points(step)})</span> : null}</p>}
+                  {high ? <span className="text-slate-500"> (+{money(step)})</span> : null}</p>}
             </div>
             {auction.teams.length ? (
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4">
@@ -454,7 +495,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                         leading ? "paddle-leading border-transparent" : "border-white/10"
                       } ${usable ? "hover:-translate-y-0.5 active:translate-y-0" : "cursor-default"} ${!leading && player && reason && reason !== "Leading" ? "opacity-50" : ""}`}
                     >
-                      <span className="absolute inset-0 opacity-90" style={{ background: `linear-gradient(150deg, ${team.color}${leading ? "55" : "26"}, rgba(10,16,34,.92) 62%)` }} />
+                      <span className="absolute inset-0 opacity-90" style={{ background: `linear-gradient(150deg, ${team.color}${leading ? "55" : "26"}, var(--p-surface) 62%)` }} />
                       <span className="absolute inset-x-0 top-0 h-1" style={{ background: team.color }} />
                       <span className="relative flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3">
                         <TeamCrest team={team} />
@@ -468,7 +509,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                       <span className="relative mt-4 flex items-end justify-between gap-2">
                         <span>
                           <span className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">Purse</span>
-                          <span className="font-display text-2xl font-semibold text-white">{points(team.purse)}</span>
+                          <span className="font-display text-2xl font-semibold text-white">{money(team.purse)}</span>
                         </span>
                         {player && (
                           <span
@@ -478,10 +519,10 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                                 ? { background: team.color, color: textOn(team.color) }
                                 : reason
                                   ? { background: "rgba(255,255,255,.08)", color: "#cbd5e1" }
-                                  : { background: "#ffca5f", color: "#0b1020" }
+                                  : { background: "rgb(var(--p-highlight))", color: "#0b1020" }
                             }
                           >
-                            {leading ? "Leading" : reason ?? (canEdit && running ? `Bid ${points(nextAmount)}` : `${points(nextAmount)}`)}
+                            {leading ? "Leading" : reason ?? (canEdit && running ? `Bid ${money(nextAmount)}` : money(nextAmount))}
                           </span>
                         )}
                       </span>
@@ -510,7 +551,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                         <>
                           <span className="h-2 w-2 rounded-full" style={{ background: team?.color ?? "#94a3b8" }} />
                           <span className="text-slate-300">{team?.short ?? "—"}</span>
-                          <span className="font-display font-semibold text-gold">{points(event.amount ?? 0)}</span>
+                          <span className="font-display font-semibold text-gold">{money(event.amount ?? 0)}</span>
                         </>
                       ) : (
                         <span className="text-xs font-bold uppercase text-rose-300">Unsold</span>
@@ -555,7 +596,7 @@ function ControlButton({
     neutral: "bg-white/10 text-white hover:bg-white/15",
     go: "bg-emerald-400 text-slate-950 hover:bg-emerald-300",
     danger: "bg-rose-500/15 text-rose-200 hover:bg-rose-500/25",
-    gold: "bg-gradient-to-r from-gold to-orange-400 text-slate-950 shadow-[0_10px_30px_-8px_rgba(255,202,95,.7)]",
+    gold: "bg-gradient-to-r from-gold to-gold2 text-slate-950 shadow-[0_10px_30px_-8px_rgb(var(--p-highlight)/.7)]",
   };
   return (
     <button
@@ -615,7 +656,7 @@ function ClosingMoment({ moment: active, onClose }: { moment?: Moment; onClose: 
                 </span>
               }
             >
-              <h2 className="break-words font-display text-5xl font-extrabold uppercase italic leading-[.9] tracking-wide text-white drop-shadow-[0_4px_18px_rgba(0,0,0,.9)] sm:text-6xl">
+              <h2 className="break-words font-display text-3xl font-extrabold uppercase italic leading-[.95] text-white drop-shadow-[0_4px_18px_rgba(0,0,0,.9)] sm:text-4xl">
                 {who.name}
               </h2>
               {sold && team ? (
@@ -624,9 +665,9 @@ function ClosingMoment({ moment: active, onClose }: { moment?: Moment; onClose: 
                     <TeamCrest team={team} size="md" />
                     <p className="min-w-0 truncate font-display text-2xl font-bold uppercase tracking-wide text-white">{team.name}</p>
                   </div>
-                  <p className="gold-text mt-2 pr-2 font-display text-7xl font-extrabold italic leading-none">
+                  <p className="gold-text mt-2 whitespace-nowrap pr-2 font-display text-6xl font-extrabold italic leading-none">
+                    <span className="emoji mr-2 inline-block align-middle text-[.6em]">{CURRENCY}</span>
                     {points(moment.amount ?? 0)}
-                    <span className="ml-2 text-3xl">pts</span>
                   </p>
                 </>
               ) : (
@@ -638,18 +679,10 @@ function ClosingMoment({ moment: active, onClose }: { moment?: Moment; onClose: 
               animate={{ scale: 1, rotate: -12, opacity: 1 }}
               transition={{ delay: 0.2, type: "spring", stiffness: 420, damping: 15 }}
               className="absolute -right-3 top-14 rounded-xl border-[5px] px-5 py-1 font-display text-5xl font-extrabold uppercase italic tracking-widest shadow-2xl sm:-right-8"
-              style={{ borderColor: tone, color: tone, background: "#050814", boxShadow: `0 0 40px -6px ${tone}` }}
+              style={{ borderColor: tone, color: tone, background: "var(--p-stage-3)", boxShadow: `0 0 40px -6px ${tone}` }}
             >
               {sold ? "Sold" : "Unsold"}
             </motion.span>
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 1.2 }}
-              className="mt-4 text-center text-xs font-bold uppercase tracking-[.25em] text-slate-400"
-            >
-              Tap anywhere to continue
-            </motion.p>
           </motion.div>
         </motion.div>
       )}
