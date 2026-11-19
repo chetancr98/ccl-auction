@@ -6,7 +6,6 @@ import {
   FileUp,
   Gavel,
   Home,
-  ImageDown,
   LogIn,
   LogOut,
   Moon,
@@ -19,7 +18,7 @@ import {
   Wrench,
 } from "lucide-react";
 
-import { DriveFileError, downloadDriveFile, requestDriveAccess, toBrowserImage } from "@/lib/drive";
+import { compressImage } from "@/lib/image";
 import { firebaseEnabled } from "@/lib/firebase";
 import { deleteAuction as deleteRemoteAuction, saveAuction, signInWithEmail, signInWithGoogle, signOut, subscribeAuctions, watchAuth, type AuthState } from "@/lib/store";
 import { canonicalRole, CURRENCY, money, ROLES } from "@/lib/format";
@@ -27,6 +26,7 @@ import { detectColumns, driveFileId, isLink, normalizeRole, parseAge, photoFromL
 import type { Auction, IncrementTier, Player, Rules, Team } from "@/lib/types";
 import { Room } from "./components/room";
 import { Empty, Input, Item, List, Panel, PlayerPhoto, TeamCrest } from "./components/ui";
+import { DrivePhotoBanner, drivePhotoPlayers } from "./components/drive-photos";
 import { Results } from "./components/results";
 import { Dashboard } from "./components/views";
 
@@ -74,33 +74,6 @@ const readTextFile = (file: File) =>
     reader.readAsText(file);
   });
 
-// Player photos: JPEG keeps them small (640px is sharp on the big stage card and well under
-// Firestore's 1 MB document limit). Team logos: PNG keeps transparent backgrounds.
-const compressImage = (file: Blob & { name?: string }, maxSize = 640, quality = 0.72, type: "image/jpeg" | "image/png" = "image/jpeg") =>
-  new Promise<string>((resolve, reject) => {
-    const image = new Image();
-    const url = URL.createObjectURL(file);
-    image.onload = () => {
-      const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(image.width * scale));
-      canvas.height = Math.max(1, Math.round(image.height * scale));
-      const context = canvas.getContext("2d");
-      if (!context) {
-        URL.revokeObjectURL(url);
-        reject(new Error("Could not prepare image"));
-        return;
-      }
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL(type, quality));
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error(`Could not read ${file.name ?? "image"} (unsupported format such as HEIC?)`));
-    };
-    image.src = url;
-  });
 
 const parseCsv = (text: string) => {
   const rows: string[][] = [];
@@ -237,6 +210,9 @@ export default function App() {
   };
 
   const auction = auctions.find((x) => x.id === active);
+  // Newest auctions, for merging Drive photos into whatever the data looks like right now.
+  const latestAuctions = useRef(auctions);
+  latestAuctions.current = auctions;
   const save = (next: Auction) => {
     setAuctions((current) => current.map((item) => (item.id === next.id ? next : item)));
     if (firebaseEnabled) {
@@ -245,6 +221,12 @@ export default function App() {
         next,
       ).catch(reportWriteError);
     }
+  };
+  // Stores downloaded Drive photos (player id -> image) into the latest version of an auction.
+  const savePhotos = (auctionId: string, photos: Map<string, string>) => {
+    const latest = latestAuctions.current.find((item) => item.id === auctionId);
+    if (!latest) return;
+    save({ ...latest, players: latest.players.map((player) => (photos.has(player.id) ? { ...player, photo: photos.get(player.id) } : player)) });
   };
   const create = (next: Auction) => {
     setAuctions((current) => [...current, next]);
@@ -337,6 +319,10 @@ export default function App() {
             </button>
           </div>
         )}
+        {canEdit &&
+          auctions
+            .filter((item) => drivePhotoPlayers(item).length > 0)
+            .map((item) => <DrivePhotoBanner key={item.id} auction={item} onPhotos={savePhotos} />)}
         {canEdit && deviceAuctions.length > 0 && (
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-gold/10 p-4 text-sm">
             <span>
@@ -598,13 +584,6 @@ function Builder({
   const [teamForm, setTeamForm] = useState({ name: "", owner: "", short: "", purse: DEFAULT_PURSE, color: nextTeamColor(auction?.teams ?? []), logo: "" });
   const [playerForm, setPlayerForm] = useState({ ...defaultPlayerForm, base: String(rules.basePrice) });
   const [importing, setImporting] = useState(false);
-  const [driveBusy, setDriveBusy] = useState(false);
-  const [driveFailures, setDriveFailures] = useState<string[]>([]);
-  const driveStop = useRef(false);
-  // Always the newest saved version of this auction (it can change in the live room while photos load).
-  const latestAuction = useRef(auction);
-  latestAuction.current = auction;
-  const [driveMessage, setDriveMessage] = useState("");
   const [importMessage, setImportMessage] = useState("Choose the Google Form responses as Excel (.xlsx) or CSV. You can add image files too.");
 
   const defaultBase = () => Math.max(rules.basePrice || 0, rules.minimumBid || 0);
@@ -686,82 +665,26 @@ function Builder({
     setPlayerForm((current) => ({ ...current, photo }));
   };
 
-  // Players whose photo is still a Google Drive link (private form uploads need loading with Drive access).
+  // Players whose photo is still a Google Drive link (saved into the app from the banner at the top).
   const drivePlayers = players.filter((player) => player.photo && driveFileId(player.photo));
 
-  const loadDrivePhotos = async () => {
-    const targets = players.filter((player) => player.photo && driveFileId(player.photo));
-    if (!targets.length) return;
-    driveStop.current = false;
-    setDriveBusy(true);
-    setDriveFailures([]);
-    setDriveMessage("Choose a Google account that can open the photos…");
-
-    const loaded = new Map<string, string>();
-    const failed: string[] = [];
-    let pending = new Map<string, string>();
-    let fatal: string | undefined;
-
-    // Merge finished photos into the builder and, for a saved auction, into the live data in
-    // small batches, so progress is kept even if loading stops and nothing sold meanwhile is undone.
-    const flush = () => {
-      if (!pending.size) return;
-      const batch = pending;
-      pending = new Map();
-      setPlayers((current) => current.map((player) => (batch.has(player.id) ? { ...player, photo: batch.get(player.id) } : player)));
-      const latest = latestAuction.current;
-      if (latest) onSave({ ...latest, players: latest.players.map((player) => (batch.has(player.id) ? { ...player, photo: batch.get(player.id) } : player)) });
-    };
-
-    try {
-      const access = await requestDriveAccess();
-      const who = access.email ? ` as ${access.email}` : "";
-      const queue = [...targets];
-      let done = 0;
-      setDriveMessage(`Loading photos${who}… 0/${targets.length}`);
-
-      const worker = async () => {
-        while (queue.length && !driveStop.current && !fatal) {
-          const player = queue.shift()!;
-          try {
-            const blob = await downloadDriveFile(driveFileId(player.photo!)!, access.token);
-            const photo = await compressImage(await toBrowserImage(blob));
-            loaded.set(player.id, photo);
-            pending.set(player.id, photo);
-            if (pending.size >= 25) flush();
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "error";
-            // These affect every file, so stop instead of failing hundreds of times.
-            if (error instanceof DriveFileError && (error.status === 401 || message.includes("not enabled"))) fatal = message;
-            else failed.push(`${player.name}: ${message}`);
-          }
-          done += 1;
-          setDriveMessage(`Loading photos${who}… ${done}/${targets.length}`);
+  // When photos are saved into the app (from the banner), adopt them here too, so saving the
+  // Builder later can never put the old Drive links back.
+  useEffect(() => {
+    if (!auction) return;
+    const saved = new Map(auction.players.filter((player) => player.photo && !driveFileId(player.photo)).map((player) => [player.id, player.photo!]));
+    setPlayers((current) => {
+      let changed = false;
+      const next = current.map((player) => {
+        if (player.photo && driveFileId(player.photo) && saved.has(player.id)) {
+          changed = true;
+          return { ...player, photo: saved.get(player.id) };
         }
-      };
-      await Promise.all(Array.from({ length: Math.min(6, targets.length) }, worker));
-      flush();
-
-      const left = targets.length - loaded.size - failed.length;
-      setDriveFailures(failed);
-      setDriveMessage(
-        [
-          fatal ?? (driveStop.current ? "Stopped." : ""),
-          `Loaded ${loaded.size} of ${targets.length} photos${who}.`,
-          failed.length ? `${failed.length} could not be loaded (listed below).` : "",
-          left > 0 ? `${left} not tried yet; click Load again to continue.` : "",
-          loaded.size ? (auction ? "Saved to the auction." : "Click “Create auction” to keep them.") : "",
-        ]
-          .filter(Boolean)
-          .join(" "),
-      );
-    } catch (error) {
-      flush();
-      setDriveMessage(error instanceof Error ? error.message : "Could not load photos from Google Drive.");
-    } finally {
-      setDriveBusy(false);
-    }
-  };
+        return player;
+      });
+      return changed ? next : current;
+    });
+  }, [auction]);
 
   const importPlayers = async (fileList: FileList | null) => {
     const files = Array.from(fileList || []);
@@ -1073,52 +996,17 @@ function Builder({
                 />
               </label>
               <p className="mt-3 text-sm text-slate-400">{importMessage}</p>
-              {(drivePlayers.length > 0 || driveMessage) && (
-                <div className="mt-4 rounded-2xl border border-gold/30 bg-gold/10 p-4">
-                  <p className="text-sm font-bold text-gold">
-                    {drivePlayers.length ? drivePlayers.length === 1 ? "1 player photo is a Google Drive link" : `${drivePlayers.length} player photos are Google Drive links` : "Google Drive photos"}
+              {drivePlayers.length > 0 && (
+                <div className="mt-4 rounded-2xl border border-gold/30 bg-gold/10 p-4 text-sm">
+                  <p className="font-bold text-gold">
+                    Next step: save {drivePlayers.length === 1 ? "1 photo" : `${drivePlayers.length} photos`} into the app
                   </p>
                   <p className="mt-1 text-xs leading-5 text-slate-300">
-                    Form uploads are private, so load them once with your Google account (the one that owns the form). The app downloads each photo and stores
-                    it with the player, so everyone can see it. Nothing in Drive is changed or made public.
+                    {auction
+                      ? "Click “Save auction”, then use “Save photos to the app” in the gold bar at the top of the page."
+                      : "Click “Create auction”, then use “Save photos to the app” in the gold bar at the top of the page."}{" "}
+                    Until then only people with access to the Google Drive files can see these photos.
                   </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {drivePlayers.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={loadDrivePhotos}
-                        disabled={driveBusy}
-                        className="flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-black text-slate-900 transition hover:-translate-y-0.5 disabled:opacity-60"
-                      >
-                        <ImageDown size={16} /> {driveBusy ? "Loading…" : "Load photos from Google Drive"}
-                      </button>
-                    )}
-                    {driveBusy && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          driveStop.current = true;
-                        }}
-                        className="rounded-xl bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/15"
-                      >
-                        Stop
-                      </button>
-                    )}
-                  </div>
-                  <p className="mt-2 text-[11px] leading-5 text-slate-400">
-                    In the popup, pick a Google account that can open the photos (one of the form owners). Your admin login stays as it is.
-                  </p>
-                  {driveMessage && <p className="mt-2 text-xs leading-5 text-slate-200">{driveMessage}</p>}
-                  {driveFailures.length > 0 && (
-                    <details className="mt-2 text-xs text-slate-300">
-                      <summary className="cursor-pointer font-bold text-rose-300">Photos that could not be loaded ({driveFailures.length})</summary>
-                      <ul className="mt-1 max-h-40 list-disc space-y-0.5 overflow-auto pl-5">
-                        {driveFailures.map((line) => (
-                          <li key={line}>{line}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
                 </div>
               )}
             </div>
