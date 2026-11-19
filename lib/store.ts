@@ -42,10 +42,35 @@ const withoutOrder = <T,>(data: Record<string, unknown>, id: string) => {
   return { ...rest, id } as T;
 };
 
-async function commitInChunks(db: Firestore, ops: ((batch: WriteBatch) => void)[]) {
-  for (let start = 0; start < ops.length; start += BATCH_LIMIT) {
+// Firestore also rejects a single commit over ~10 MB. Player photos are ~50–100 KB each, so a save
+// with hundreds of photos is split by size as well as by count.
+const BATCH_BYTES = 6 * 1024 * 1024;
+
+type Op = { apply: (batch: WriteBatch) => void; bytes: number };
+const op = (apply: (batch: WriteBatch) => void, data?: unknown): Op => ({ apply, bytes: data === undefined ? 200 : JSON.stringify(data).length + 200 });
+
+/** Splits writes into commits of at most BATCH_LIMIT writes and about BATCH_BYTES each. */
+export function splitIntoBatches<T extends { bytes: number }>(ops: T[], maxCount = BATCH_LIMIT, maxBytes = BATCH_BYTES) {
+  const batches: T[][] = [];
+  let chunk: T[] = [];
+  let bytes = 0;
+  for (const item of ops) {
+    if (chunk.length && (chunk.length >= maxCount || bytes + item.bytes > maxBytes)) {
+      batches.push(chunk);
+      chunk = [];
+      bytes = 0;
+    }
+    chunk.push(item);
+    bytes += item.bytes;
+  }
+  if (chunk.length) batches.push(chunk);
+  return batches;
+}
+
+async function commitInChunks(db: Firestore, ops: Op[]) {
+  for (const chunk of splitIntoBatches(ops)) {
     const batch = writeBatch(db);
-    ops.slice(start, start + BATCH_LIMIT).forEach((op) => op(batch));
+    chunk.forEach((item) => item.apply(batch));
     await batch.commit();
   }
 }
@@ -116,11 +141,11 @@ export function subscribeAuctions(onChange: (auctions: Auction[]) => void, onErr
 /** Writes only what changed between `previous` (what is stored) and `next`. */
 export async function saveAuction(previous: Auction | undefined, next: Auction) {
   const db = requireDb();
-  const ops: ((batch: WriteBatch) => void)[] = [];
+  const ops: Op[] = [];
 
   const nextDoc = auctionDoc(next);
   if (!previous || JSON.stringify(auctionDoc(previous)) !== JSON.stringify(nextDoc)) {
-    ops.push((batch) => batch.set(doc(db, "auctions", next.id), nextDoc));
+    ops.push(op((batch) => batch.set(doc(db, "auctions", next.id), nextDoc), nextDoc));
   }
 
   for (const sub of SUBCOLLECTIONS) {
@@ -128,11 +153,11 @@ export async function saveAuction(previous: Auction | undefined, next: Auction) 
     subItems(next, sub).forEach((item, order) => {
       const data = { ...item, order };
       if (before.get(item.id) !== JSON.stringify(data)) {
-        ops.push((batch) => batch.set(doc(db, "auctions", next.id, sub, item.id), data));
+        ops.push(op((batch) => batch.set(doc(db, "auctions", next.id, sub, item.id), data), data));
       }
       before.delete(item.id);
     });
-    before.forEach((_, id) => ops.push((batch) => batch.delete(doc(db, "auctions", next.id, sub, id))));
+    before.forEach((_, id) => ops.push(op((batch) => batch.delete(doc(db, "auctions", next.id, sub, id)))));
   }
 
   await commitInChunks(db, ops);
@@ -141,12 +166,12 @@ export async function saveAuction(previous: Auction | undefined, next: Auction) 
 /** Deletes the auction and everything under it (Firestore does not cascade deletes). */
 export async function deleteAuction(id: string) {
   const db = requireDb();
-  const ops: ((batch: WriteBatch) => void)[] = [];
+  const ops: Op[] = [];
   for (const sub of SUBCOLLECTIONS) {
     const snapshot = await getDocs(collection(db, "auctions", id, sub));
-    snapshot.docs.forEach((item) => ops.push((batch) => batch.delete(item.ref)));
+    snapshot.docs.forEach((item) => ops.push(op((batch) => batch.delete(item.ref))));
   }
-  ops.push((batch) => batch.delete(doc(db, "auctions", id)));
+  ops.push(op((batch) => batch.delete(doc(db, "auctions", id))));
   await commitInChunks(db, ops);
 }
 

@@ -18,7 +18,7 @@ import {
   Wrench,
 } from "lucide-react";
 
-import { DriveFileError, downloadDriveFile, requestDriveAccess } from "@/lib/drive";
+import { DriveFileError, downloadDriveFile, requestDriveAccess, toBrowserImage } from "@/lib/drive";
 import { firebaseEnabled } from "@/lib/firebase";
 import { deleteAuction as deleteRemoteAuction, saveAuction, signInWithEmail, signInWithGoogle, signOut, subscribeAuctions, watchAuth, type AuthState } from "@/lib/store";
 import { canonicalRole, money, points, ROLES } from "@/lib/format";
@@ -539,6 +539,11 @@ function Builder({
   const [playerForm, setPlayerForm] = useState({ ...defaultPlayerForm, base: String(rules.basePrice) });
   const [importing, setImporting] = useState(false);
   const [driveBusy, setDriveBusy] = useState(false);
+  const [driveFailures, setDriveFailures] = useState<string[]>([]);
+  const driveStop = useRef(false);
+  // Always the newest saved version of this auction (it can change in the live room while photos load).
+  const latestAuction = useRef(auction);
+  latestAuction.current = auction;
   const [driveMessage, setDriveMessage] = useState("");
   const [importMessage, setImportMessage] = useState("Choose the Google Form responses as Excel (.xlsx) or CSV. You can add image files too.");
 
@@ -627,36 +632,71 @@ function Builder({
   const loadDrivePhotos = async () => {
     const targets = players.filter((player) => player.photo && driveFileId(player.photo));
     if (!targets.length) return;
+    driveStop.current = false;
     setDriveBusy(true);
-    setDriveMessage("Waiting for Google permission…");
+    setDriveFailures([]);
+    setDriveMessage("Choose a Google account that can open the photos…");
+
+    const loaded = new Map<string, string>();
+    const failed: string[] = [];
+    let pending = new Map<string, string>();
+    let fatal: string | undefined;
+
+    // Merge finished photos into the builder and, for a saved auction, into the live data in
+    // small batches, so progress is kept even if loading stops and nothing sold meanwhile is undone.
+    const flush = () => {
+      if (!pending.size) return;
+      const batch = pending;
+      pending = new Map();
+      setPlayers((current) => current.map((player) => (batch.has(player.id) ? { ...player, photo: batch.get(player.id) } : player)));
+      const latest = latestAuction.current;
+      if (latest) onSave({ ...latest, players: latest.players.map((player) => (batch.has(player.id) ? { ...player, photo: batch.get(player.id) } : player)) });
+    };
+
     try {
-      const token = await requestDriveAccess();
-      const results = new Map<string, string>();
-      const failed: string[] = [];
+      const access = await requestDriveAccess();
+      const who = access.email ? ` as ${access.email}` : "";
       const queue = [...targets];
       let done = 0;
-      setDriveMessage(`Loading photos… 0/${targets.length}`);
+      setDriveMessage(`Loading photos${who}… 0/${targets.length}`);
+
       const worker = async () => {
-        while (queue.length) {
+        while (queue.length && !driveStop.current && !fatal) {
           const player = queue.shift()!;
           try {
-            const blob = await downloadDriveFile(driveFileId(player.photo!)!, token);
-            results.set(player.id, await compressImage(blob));
+            const blob = await downloadDriveFile(driveFileId(player.photo!)!, access.token);
+            const photo = await compressImage(await toBrowserImage(blob));
+            loaded.set(player.id, photo);
+            pending.set(player.id, photo);
+            if (pending.size >= 25) flush();
           } catch (error) {
-            // A disabled Drive API affects every file, so stop and explain once.
-            if (error instanceof DriveFileError && error.status === 403 && error.message.includes("not enabled")) throw error;
-            failed.push(`${player.name} (${error instanceof Error ? error.message : "error"})`);
+            const message = error instanceof Error ? error.message : "error";
+            // These affect every file, so stop instead of failing hundreds of times.
+            if (error instanceof DriveFileError && (error.status === 401 || message.includes("not enabled"))) fatal = message;
+            else failed.push(`${player.name}: ${message}`);
           }
           done += 1;
-          setDriveMessage(`Loading photos… ${done}/${targets.length}`);
+          setDriveMessage(`Loading photos${who}… ${done}/${targets.length}`);
         }
       };
-      await Promise.all(Array.from({ length: Math.min(4, targets.length) }, worker));
-      setPlayers((current) => current.map((player) => (results.has(player.id) ? { ...player, photo: results.get(player.id) } : player)));
+      await Promise.all(Array.from({ length: Math.min(6, targets.length) }, worker));
+      flush();
+
+      const left = targets.length - loaded.size - failed.length;
+      setDriveFailures(failed);
       setDriveMessage(
-        `Loaded ${results.size} of ${targets.length} photos.${failed.length ? ` Could not load: ${failed.slice(0, 4).join("; ")}${failed.length > 4 ? ` and ${failed.length - 4} more` : ""}.` : ""}${results.size ? " Click “Save auction” (or “Create auction”) to keep them." : ""}`,
+        [
+          fatal ?? (driveStop.current ? "Stopped." : ""),
+          `Loaded ${loaded.size} of ${targets.length} photos${who}.`,
+          failed.length ? `${failed.length} could not be loaded (listed below).` : "",
+          left > 0 ? `${left} not tried yet; click Load again to continue.` : "",
+          loaded.size ? (auction ? "Saved to the auction." : "Click “Create auction” to keep them.") : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
       );
     } catch (error) {
+      flush();
       setDriveMessage(error instanceof Error ? error.message : "Could not load photos from Google Drive.");
     } finally {
       setDriveBusy(false);
@@ -769,6 +809,8 @@ function Builder({
       players: players.map((player) => ({ ...player, role: canonicalRole(player.role) })),
       history: auction?.history || [],
       createdAt: auction?.createdAt || new Date().toISOString(),
+      // Keep the player currently on stage; saving rules or teams must not end a live lot.
+      live: auction?.live,
     };
     auction ? onSave(next) : onCreate(next);
   };
@@ -980,17 +1022,43 @@ function Builder({
                     Form uploads are private, so load them once with your Google account (the one that owns the form). The app downloads each photo and stores
                     it with the player, so everyone can see it. Nothing in Drive is changed or made public.
                   </p>
-                  {drivePlayers.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={loadDrivePhotos}
-                      disabled={driveBusy}
-                      className="mt-3 flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-black text-slate-900 transition hover:-translate-y-0.5 disabled:opacity-60"
-                    >
-                      <ImageDown size={16} /> {driveBusy ? "Loading…" : "Load photos from Google Drive"}
-                    </button>
-                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {drivePlayers.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={loadDrivePhotos}
+                        disabled={driveBusy}
+                        className="flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-black text-slate-900 transition hover:-translate-y-0.5 disabled:opacity-60"
+                      >
+                        <ImageDown size={16} /> {driveBusy ? "Loading…" : "Load photos from Google Drive"}
+                      </button>
+                    )}
+                    {driveBusy && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          driveStop.current = true;
+                        }}
+                        className="rounded-xl bg-white/10 px-4 py-2.5 text-sm font-bold transition hover:bg-white/15"
+                      >
+                        Stop
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-2 text-[11px] leading-5 text-slate-400">
+                    In the popup, pick a Google account that can open the photos (one of the form owners). Your admin login stays as it is.
+                  </p>
                   {driveMessage && <p className="mt-2 text-xs leading-5 text-slate-200">{driveMessage}</p>}
+                  {driveFailures.length > 0 && (
+                    <details className="mt-2 text-xs text-slate-300">
+                      <summary className="cursor-pointer font-bold text-rose-300">Photos that could not be loaded ({driveFailures.length})</summary>
+                      <ul className="mt-1 max-h-40 list-disc space-y-0.5 overflow-auto pl-5">
+                        {driveFailures.map((line) => (
+                          <li key={line}>{line}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                 </div>
               )}
             </div>

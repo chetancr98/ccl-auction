@@ -1,5 +1,5 @@
 import { getApps, initializeApp, type FirebaseApp } from "firebase/app";
-import { connectAuthEmulator, getAuth, type Auth } from "firebase/auth";
+import { browserPopupRedirectResolver, connectAuthEmulator, getAuth, inMemoryPersistence, initializeAuth, type Auth } from "firebase/auth";
 import { connectFirestoreEmulator, initializeFirestore, type Firestore } from "firebase/firestore";
 
 // NEXT_PUBLIC_* values are inlined at build time, so each one must be referenced literally.
@@ -24,7 +24,7 @@ let services: { app: FirebaseApp; auth: Auth; db: Firestore } | undefined;
 export function getFirebase() {
   if (!firebaseEnabled || typeof window === "undefined") return undefined;
   if (!services) {
-    const app = getApps()[0] ?? initializeApp(config);
+    const app = getApps().find((item) => item.name === "[DEFAULT]") ?? initializeApp(config);
     // Optional fields such as player.team are often undefined; let Firestore skip them.
     const db = databaseId
       ? initializeFirestore(app, { ignoreUndefinedProperties: true }, databaseId)
@@ -37,4 +37,20 @@ export function getFirebase() {
     services = { app, auth, db };
   }
   return services;
+}
+
+let driveHelperAuth: Auth | undefined;
+
+/**
+ * A second, separate Firebase sign-in used only to borrow a Google account's Drive permission
+ * (e.g. an account that owns the form's photo uploads). It is kept in memory only, so the admin's
+ * own app login is never replaced or changed.
+ */
+export function getDriveHelperAuth() {
+  if (!firebaseEnabled || typeof window === "undefined") return undefined;
+  if (!driveHelperAuth) {
+    const app = getApps().find((item) => item.name === "drive-access") ?? initializeApp(config, "drive-access");
+    driveHelperAuth = initializeAuth(app, { persistence: inMemoryPersistence, popupRedirectResolver: browserPopupRedirectResolver });
+  }
+  return driveHelperAuth;
 }
