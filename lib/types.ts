@@ -36,6 +36,8 @@ export type Rules = {
   incrementTiers?: IncrementTier[];
   basePrice: number;
   maxSlots: number;
+  /** Players each team must buy; bids are capped so every team can still reach it. */
+  minSquad?: number;
   scheduledAt: string;
 };
 

@@ -18,6 +18,7 @@ import {
   Wrench,
 } from "lucide-react";
 
+import { feasibilityWarnings, minSquadOf } from "@/lib/budget";
 import { compressImage } from "@/lib/image";
 import { downloadDrivePhotos, prepareDriveAccess, requestDriveAccess, type DrivePhotoJob } from "@/lib/drive";
 import { firebaseEnabled } from "@/lib/firebase";
@@ -657,6 +658,9 @@ function Builder({
     setPlayerForm((current) => ({ ...current, photo }));
   };
 
+  // Settings that would make the auction impossible to finish (shown under the rules).
+  const warnings = feasibilityWarnings(rules, teams, players.length, money);
+
   // Builds the auction from the builder's current state (used by Save and by import).
   const buildAuction = (playerList: Player[]): Auction => ({
     id: auction?.id || crypto.randomUUID(),
@@ -882,6 +886,24 @@ function Builder({
               </div>
             </div>
             <Input label="Maximum squad size" type="number" value={String(rules.maxSlots)} on={(value) => setRules({ ...rules, maxSlots: +value })} />
+            <div>
+              <Input
+                label="Minimum players each team must buy"
+                type="number"
+                value={String(minSquadOf(rules))}
+                on={(value) => setRules({ ...rules, minSquad: Math.max(0, +value) })}
+              />
+              <small className="mt-1 block text-[11px] text-slate-500">
+                Bids are capped so every team always keeps enough to complete this squad (shown as “Max” on each team&apos;s paddle).
+              </small>
+            </div>
+            {warnings.length > 0 && (
+              <ul className="space-y-1 rounded-2xl border border-rose-400/30 bg-rose-500/10 p-3 text-xs leading-5 text-rose-200">
+                {warnings.map((warning) => (
+                  <li key={warning}>⚠ {warning}</li>
+                ))}
+              </ul>
+            )}
             <button className="w-full rounded-2xl bg-cyan py-3 text-sm font-black text-slate-950 transition hover:-translate-y-0.5">
               {auction ? "Save auction" : "Create auction"}
             </button>

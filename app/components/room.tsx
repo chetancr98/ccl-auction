@@ -4,11 +4,23 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Gavel, Maximize2, Minimize2, Pause, Play, RotateCcw, Search, Undo2, Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { celebrate, setSoundEnabled, soundEnabled, unlockAudio } from "@/lib/celebrate";
+import { teamBudget } from "@/lib/budget";
 import { canonicalRole, CURRENCY, incrementAt, money, points, ROLES, stamp, textOn } from "@/lib/format";
 import type { Auction, AuctionEvent, Bid, Player, Team } from "@/lib/types";
 import { Empty, PlayerCard, PlayerPhoto, RoleTag, TeamCrest } from "./ui";
 
 const ROLE_FILTERS = ["All", ...ROLES];
+
+/**
+ * Font size that lets a big "💰 12,345" fit its card: shrinks as digits are added, never larger
+ * than maxRem. Needs a container with container-type: inline-size (cqi = 1% of its width).
+ */
+function fitAmount(amount: number, maxRem: number) {
+  const text = points(amount);
+  const digits = text.replace(/\D/g, "").length;
+  const widthEm = digits * 0.72 + (text.length - digits) * 0.32 + 1.1; // emoji and its gap ≈ 1.1em
+  return { fontSize: `min(${maxRem}rem, ${(96 / widthEm).toFixed(1)}cqi)` };
+}
 // How old (by the auctioneer's clock) a result may be and still be announced; generous to allow for clock drift between devices.
 const MOMENT_FRESH_MS = 60_000;
 
@@ -140,10 +152,14 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
 
   const log = (event: Omit<AuctionEvent, "id" | "at" | "ts"> & { at?: string }): AuctionEvent => ({ id: crypto.randomUUID(), at: stamp(), ts: Date.now(), ...event });
 
+  const budgetOf = (team: Team) => teamBudget(auction, team, player?.id);
+
   const blockReason = (team: Team) => {
     if (high?.teamId === team.id) return "Leading";
     if (team.slots < 1) return "Squad full";
     if (team.purse < nextAmount) return "Purse short";
+    // Must keep enough to buy the rest of the minimum squad.
+    if (nextAmount > budgetOf(team).maxBid) return "Max reached";
     return undefined;
   };
 
@@ -383,7 +399,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                     <div className="grid gap-4 2xl:grid-cols-[1.2fr_1fr]">
                       {/* Current bid */}
                       <div
-                        className="relative overflow-hidden rounded-3xl border p-5 transition-colors duration-500"
+                        className="relative overflow-hidden rounded-3xl border p-5 transition-colors duration-500 [container-type:inline-size]"
                         style={{
                           borderColor: leader ? `${leader.color}88` : "rgba(255,255,255,.12)",
                           background: leader ? `linear-gradient(135deg, ${leader.color}33, rgba(0,0,0,.35) 70%)` : "rgba(0,0,0,.3)",
@@ -397,7 +413,8 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                             animate={{ scale: 1, opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -8 }}
                             transition={{ type: "spring", stiffness: 420, damping: 22 }}
-                            className="gold-text mt-1 whitespace-nowrap pr-2 font-display text-6xl font-extrabold italic leading-none md:text-7xl"
+                            className="gold-text mt-1 whitespace-nowrap pr-2 font-display font-extrabold italic leading-none"
+                            style={fitAmount(high ? high.amount : openingBid, 4.5)}
                           >
                             <span className="emoji mr-2 inline-block align-middle text-[.6em]">{CURRENCY}</span>
                             {points(high ? high.amount : openingBid)}
@@ -483,7 +500,7 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                 {auction.teams.map((team) => {
                   const reason = player ? blockReason(team) : undefined;
                   const leading = high?.teamId === team.id;
-                  const bought = auction.players.filter((item) => item.status === "sold" && item.team === team.name).length;
+                  const budget = budgetOf(team);
                   const usable = canEdit && running && !reason;
                   return (
                     <button
@@ -502,14 +519,18 @@ export function Room({ auction, canEdit, onSave }: { auction?: Auction; canEdit:
                         <span className="min-w-0">
                           <b className="line-clamp-2 font-display text-base font-semibold uppercase leading-tight tracking-wide text-white sm:text-lg">{team.name}</b>
                           <small className="text-slate-300">
-                            {bought} bought · {team.slots} left
+                            {budget.bought} bought · {team.slots} left
+                            {budget.stillNeeded > 0 ? ` · needs ${budget.stillNeeded}` : ""}
                           </small>
                         </span>
                       </span>
                       <span className="relative mt-4 flex items-end justify-between gap-2">
-                        <span>
+                        <span className="min-w-0">
                           <span className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">Purse</span>
                           <span className="font-display text-2xl font-semibold text-white">{money(team.purse)}</span>
+                          <span className="block text-[11px] font-bold text-slate-300" title="Highest bid that still leaves enough to complete the minimum squad">
+                            Max {money(budget.maxBid)}
+                          </span>
                         </span>
                         {player && (
                           <span
@@ -665,10 +686,12 @@ function ClosingMoment({ moment: active, onClose }: { moment?: Moment; onClose: 
                     <TeamCrest team={team} size="md" />
                     <p className="min-w-0 truncate font-display text-2xl font-bold uppercase tracking-wide text-white">{team.name}</p>
                   </div>
-                  <p className="gold-text mt-2 whitespace-nowrap pr-2 font-display text-6xl font-extrabold italic leading-none">
-                    <span className="emoji mr-2 inline-block align-middle text-[.6em]">{CURRENCY}</span>
-                    {points(moment.amount ?? 0)}
-                  </p>
+                  <div className="[container-type:inline-size]">
+                    <p className="gold-text mt-2 whitespace-nowrap pr-2 font-display font-extrabold italic leading-none" style={fitAmount(moment.amount ?? 0, 3.75)}>
+                      <span className="emoji mr-2 inline-block align-middle text-[.6em]">{CURRENCY}</span>
+                      {points(moment.amount ?? 0)}
+                    </p>
+                  </div>
                 </>
               ) : (
                 <p className="mt-3 text-sm text-slate-200">No bids this round. {who.name} can return in the unsold round.</p>
