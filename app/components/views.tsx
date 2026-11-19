@@ -2,7 +2,7 @@
 
 import { CalendarClock, Gavel, Plus, Radio, Sparkles, Trash2, Trophy, Users, WalletCards } from "lucide-react";
 import { canonicalRole, CURRENCY, money, points } from "@/lib/format";
-import type { Auction, AuctionEvent } from "@/lib/types";
+import type { Auction, AuctionEvent, Player } from "@/lib/types";
 import { Empty, Metric, Panel, PlayerPhoto, Stat, TeamCrest } from "./ui";
 
 type Phase = { label: string; tone: string; live?: boolean };
@@ -307,6 +307,29 @@ export function SubDashboard({ auction, showTitle = true }: { auction: Auction; 
   );
 }
 
+function LeaderBadge({ label }: { label: "Owner" | "Captain" }) {
+  return (
+    <span
+      className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider ${label === "Owner" ? "bg-gold/20 text-gold" : "bg-cyan/20 text-cyan"}`}
+    >
+      {label === "Captain" ? "C · Captain" : "Owner"}
+    </span>
+  );
+}
+
+/** Owner / captain row at the top of a squad (photo when the captain is one of the players). */
+function LeaderRow({ name, label, player }: { name: string; label: "Owner" | "Captain"; player?: Player }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-gold/20 bg-gold/[.06] px-3 py-2 text-sm">
+      <span className="flex min-w-0 items-center gap-2">
+        <PlayerPhoto player={player ?? { name, role: "", photo: undefined }} size="xs" />
+        <b className="truncate">{name}</b>
+      </span>
+      <LeaderBadge label={label} />
+    </div>
+  );
+}
+
 export function TeamSummaryCards({ auction }: { auction: Auction }) {
   if (!auction.teams.length) return <Empty text="Add teams to show purse cards and purchased squads." />;
 
@@ -314,6 +337,9 @@ export function TeamSummaryCards({ auction }: { auction: Auction }) {
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       {auction.teams.map((team) => {
         const bought = auction.players.filter((player) => player.status === "sold" && player.team === team.name);
+        const isCaptain = (name: string) => !!team.captain && name.trim().toLowerCase() === team.captain.trim().toLowerCase();
+        const captainPlayer = team.captain ? auction.players.find((player) => isCaptain(player.name)) : undefined;
+        const captainBought = bought.some((player) => isCaptain(player.name));
         const total = team.purse + team.spent || 1;
         const pursePercent = Math.max(0, Math.min(100, (team.purse / total) * 100));
 
@@ -325,7 +351,10 @@ export function TeamSummaryCards({ auction }: { auction: Auction }) {
               <TeamCrest team={team} size="lg" />
               <div className="min-w-0">
                 <h3 className="truncate font-display text-2xl font-semibold uppercase tracking-wide">{team.name}</h3>
-                <p className="text-sm text-slate-400">Owner · {team.owner}</p>
+                <p className="text-sm text-slate-400">
+                  Owner · {team.owner}
+                  {team.captain ? ` · Captain · ${captainPlayer?.name ?? team.captain}` : ""}
+                </p>
               </div>
             </div>
 
@@ -340,24 +369,28 @@ export function TeamSummaryCards({ auction }: { auction: Auction }) {
 
             <div className="relative mt-5">
               <p className="text-xs font-bold uppercase tracking-[.16em] text-slate-500">Squad · {bought.length}</p>
-              {bought.length ? (
-                <div className="mt-3 space-y-2">
-                  {bought.map((player) => (
-                    <div key={player.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <PlayerPhoto player={player} size="xs" />
-                        <span className="min-w-0">
-                          <b className="block truncate">{player.name}</b>
-                          <small className="text-slate-500">{canonicalRole(player.role)}</small>
-                        </span>
+              <div className="mt-3 space-y-2">
+                {/* Team leaders first: owner, then captain (unless the captain is one of the bought players, who is tagged below). */}
+                {team.owner && <LeaderRow name={team.owner} label="Owner" />}
+                {captainPlayer && !captainBought ? <LeaderRow name={captainPlayer.name} label="Captain" player={captainPlayer} /> : null}
+                {team.captain && !captainPlayer ? <LeaderRow name={team.captain} label="Captain" /> : null}
+                {bought.map((player) => (
+                  <div key={player.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-sm">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <PlayerPhoto player={player} size="xs" />
+                      <span className="min-w-0">
+                        <b className="flex items-center gap-1.5 truncate">
+                          {player.name}
+                          {isCaptain(player.name) && <LeaderBadge label="Captain" />}
+                        </b>
+                        <small className="text-slate-500">{canonicalRole(player.role)}</small>
                       </span>
-                      <span className="font-display font-semibold text-gold">{money(player.price || 0)}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-3 rounded-2xl border border-dashed border-white/15 px-3 py-4 text-sm text-slate-500">No players bought yet.</p>
-              )}
+                    </span>
+                    <span className="font-display font-semibold text-gold">{money(player.price || 0)}</span>
+                  </div>
+                ))}
+                {!bought.length && <p className="rounded-2xl border border-dashed border-white/15 px-3 py-4 text-sm text-slate-500">No players bought yet.</p>}
+              </div>
             </div>
           </article>
         );

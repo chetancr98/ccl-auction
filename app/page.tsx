@@ -522,7 +522,7 @@ function AuthMenu({ state }: { state: AuthState }) {
         onClick={() => setOpen((current) => !current)}
         className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[.04] px-3 py-2 text-xs font-black transition hover:bg-white/10"
       >
-        <LogIn size={14} /> <span className="hidden sm:inline">Admin sign in</span><span className="sm:hidden">Sign in</span>
+        <LogIn size={14} /> Sign in
       </button>
       {open && (
         <div className="absolute right-0 top-full z-40 mt-2 w-72 space-y-3 rounded-2xl border border-white/10 bg-[var(--p-surface)] p-4 shadow-glow">
@@ -569,7 +569,7 @@ function Builder({
   const [players, setPlayers] = useState<Player[]>(auction?.players || []);
   const [editingTeam, setEditingTeam] = useState<string>();
   const [editingPlayer, setEditingPlayer] = useState<string>();
-  const [teamForm, setTeamForm] = useState({ name: "", owner: "", short: "", purse: DEFAULT_PURSE, color: nextTeamColor(auction?.teams ?? []), logo: "" });
+  const [teamForm, setTeamForm] = useState({ name: "", owner: "", captain: "", short: "", purse: DEFAULT_PURSE, color: nextTeamColor(auction?.teams ?? []), logo: "" });
   const [playerForm, setPlayerForm] = useState({ ...defaultPlayerForm, base: String(rules.basePrice) });
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("Choose the Google Form responses as Excel (.xlsx) or CSV. You can add image files too.");
@@ -608,6 +608,7 @@ function Builder({
       id: editingTeam || crypto.randomUUID(),
       name: teamForm.name,
       owner: teamForm.owner,
+      captain: teamForm.captain.trim() || undefined,
       short: teamForm.short.toUpperCase().slice(0, 3) || teamForm.name.slice(0, 3).toUpperCase(),
       color: teamForm.color,
       logo: teamForm.logo || undefined,
@@ -618,7 +619,7 @@ function Builder({
 
     const updated = editingTeam ? teams.map((item) => (item.id === editingTeam ? next : item)) : [...teams, next];
     setTeams(updated);
-    setTeamForm({ name: "", owner: "", short: "", purse: DEFAULT_PURSE, color: nextTeamColor(updated), logo: "" });
+    setTeamForm({ name: "", owner: "", captain: "", short: "", purse: DEFAULT_PURSE, color: nextTeamColor(updated), logo: "" });
     setEditingTeam(undefined);
   };
 
@@ -923,6 +924,18 @@ function Builder({
           <form onSubmit={addTeam} className="grid gap-2">
             <Input label="Team name" value={teamForm.name} on={(value) => setTeamForm({ ...teamForm, name: value })} />
             <Input label="Owner" value={teamForm.owner} on={(value) => setTeamForm({ ...teamForm, owner: value })} />
+            <Input
+              label="Captain (optional; type or pick a player)"
+              required={false}
+              list="captain-suggestions"
+              value={teamForm.captain}
+              on={(value) => setTeamForm({ ...teamForm, captain: value })}
+            />
+            <datalist id="captain-suggestions">
+              {players.map((player) => (
+                <option key={player.id} value={player.name} />
+              ))}
+            </datalist>
             <Input label="Short code" value={teamForm.short} on={(value) => setTeamForm({ ...teamForm, short: value })} />
             <Input label={`Total purse (${CURRENCY})`} type="number" value={teamForm.purse} on={(value) => setTeamForm({ ...teamForm, purse: value })} />
             <div className="text-xs font-semibold text-slate-300">
@@ -978,6 +991,7 @@ function Builder({
                   setTeamForm({
                     name: item.name,
                     owner: item.owner,
+                    captain: item.captain ?? "",
                     short: item.short,
                     purse: String(item.purse + item.spent),
                     color: item.color,

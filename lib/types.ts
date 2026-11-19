@@ -2,6 +2,8 @@ export type Team = {
   id: string;
   name: string;
   owner: string;
+  /** Team captain's name; if it matches a player, their photo is used. */
+  captain?: string;
   short: string;
   color: string;
   /** Compressed image data URL shown next to the team name. */

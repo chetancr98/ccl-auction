@@ -193,12 +193,15 @@ export function Input({
   on,
   type = "text",
   required = true,
+  list,
 }: {
   label: string;
   value: string;
   on: (value: string) => void;
   type?: string;
   required?: boolean;
+  /** id of a <datalist> with suggestions */
+  list?: string;
 }) {
   return (
     <label className="text-xs font-semibold text-slate-300">
@@ -206,6 +209,7 @@ export function Input({
       <input
         required={required}
         type={type}
+        list={list}
         value={value}
         onChange={(event) => on(event.target.value)}
         className="mt-1 w-full rounded-2xl border border-white/10 bg-black/20 p-3 text-sm outline-none transition focus:border-cyan focus:bg-black/30"
